@@ -111,7 +111,7 @@
       width: 60vw;
       max-width: 340px;
       display: block;
-      mix-blend-mode: multiply;
+      mix-blend-mode: darken;
       animation: fishTalk 0.75s ease-in-out infinite;
     }
 
@@ -510,7 +510,7 @@
     overlay.id = 'unclaim-overlay';
     overlay.addEventListener('touchstart', function(e) {
       e.preventDefault();
-      if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
+      if (appState !== S.PLACEMENT) return;  // unclaiming only allowed before countdown starts
       for (var t = 0; t < e.changedTouches.length; t++) {
         var touch = e.changedTouches[t];
         var tx = touch.clientX, ty = touch.clientY;
@@ -647,7 +647,7 @@
       // each circle-target div was removed immediately after being claimed.
       var tel = document.createElement('div');
       tel.id = 'touchend-overlay';
-      tel.addEventListener('touchend', function(e) {
+      function handleLift(e) {
         if (appState !== S.COUNTDOWN) return;
         for (var t = 0; t < e.changedTouches.length; t++) {
           var id = e.changedTouches[t].identifier;
@@ -661,7 +661,9 @@
             }
           }
         }
-      }, { passive: false });
+      }
+      tel.addEventListener('touchend',    handleLift, { passive: false });
+      tel.addEventListener('touchcancel', handleLift, { passive: false });
       document.body.appendChild(tel);
     }
 
@@ -774,22 +776,6 @@
       drawCircle(c.x, c.y, c.pressed ? GREY_PRESSED : GREY_FILL, 1, 1, 0, false);
     });
 
-    // Center status text
-    var n    = pressedCount();
-    var need = settings.numPlayers - n;
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    if (n === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.28)';
-      ctx.font      = Math.round(W * 0.042) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillText('press your circle', W / 2, H / 2);
-    } else if (need > 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.32)';
-      ctx.font      = 'bold ' + Math.round(W * 0.055) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillText(n + ' / ' + settings.numPlayers, W / 2, H / 2);
-    }
-    ctx.restore();
   }
 
   // ---------------------------------------------------------------------------
