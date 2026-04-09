@@ -95,6 +95,19 @@
     }
     #setup-screen.hidden { display: none; }
 
+    #debug-pressed {
+      position: fixed;
+      top: 20px;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      color: #FFD60A;
+      z-index: 300;
+      pointer-events: none;
+      display: none;
+    }
+
     #setup-inner {
       width: 100%;
       max-width: 320px;
@@ -221,6 +234,7 @@
 </head>
 <body>
   <canvas id="app"></canvas>
+  <div id="debug-pressed"></div>
 
   <div id="setup-screen" role="dialog" aria-modal="true" aria-label="Game setup">
     <div id="setup-inner">
@@ -470,8 +484,19 @@
     return n;
   }
 
+  function updateDebugPressed() {
+    var el = document.getElementById('debug-pressed');
+    if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
+      el.style.display = 'block';
+      el.textContent = pressedCount() + ' / ' + settings.numPlayers + ' pressed';
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
   function onCircleChange() {
     var n = pressedCount();
+    updateDebugPressed();
     if (appState === S.PLACEMENT) {
       if (n === settings.numPlayers) transitionTo(S.COUNTDOWN);
     } else if (appState === S.COUNTDOWN) {
@@ -522,6 +547,7 @@
         // c.pressed and c.fingerIdentifier intentionally preserved
         // so re-pressing just the lifted circle suffices
       });
+      updateDebugPressed();
     }
 
     if (next === S.COUNTDOWN) {
