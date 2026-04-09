@@ -60,6 +60,14 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    /* Full-screen overlay for unclaiming claimed circles */
+    #unclaim-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9;
+      touch-action: none;
+    }
+
     /* Play Again button */
     #play-again-btn {
       position: fixed;
@@ -419,60 +427,80 @@
 
   // ---------------------------------------------------------------------------
   // TOUCH TARGETS
-  // Each circle gets an invisible fixed-position div sized to cover it.
-  // Touches on the div trigger press/unpress for that specific circle.
-  // Because each circle is its own DOM target, iOS detects each finger
-  // landing one at a time on separate elements -- no simultaneous tracking needed.
+  // Claim mechanic: each unclaimed circle has a circle-target div.
+  //   touchstart → claim the circle, IMMEDIATELY remove the div.
+  //   Removing the div frees iOS's touch slot so it never accumulates 5.
+  //
+  // Unclaim mechanic: a full-screen #unclaim-overlay (z-index 9, behind
+  //   circle-targets at z-index 10) catches taps in areas where no
+  //   circle-target div exists (i.e. already-claimed circles).
+  //   A tap within hit-radius of a claimed circle unclaims it and
+  //   recreates its circle-target div.
   // ---------------------------------------------------------------------------
+  function addCircleDiv(c) {
+    const pad = RING_R + 14;
+    const div = document.createElement('div');
+    div.className    = 'circle-target';
+    div.style.left   = (c.x - pad) + 'px';
+    div.style.top    = (c.y - pad) + 'px';
+    div.style.width  = (pad * 2)   + 'px';
+    div.style.height = (pad * 2)   + 'px';
+
+    div.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
+      if (c.pressed) return;
+      c.pressed          = true;
+      c.fingerIdentifier = e.changedTouches[0].identifier;
+      // Remove immediately so iOS releases this touch slot
+      div.remove();
+      c.div = null;
+      onCircleChange();
+    }, { passive: false });
+
+    document.body.appendChild(div);
+    c.div = div;
+  }
+
   function createTouchTargets() {
-    const pad = RING_R + 14;  // touch area a bit larger than the visual ring
-    circles.forEach(function(c) {
-      const div = document.createElement('div');
-      div.className = 'circle-target';
-      div.style.left   = (c.x - pad) + 'px';
-      div.style.top    = (c.y - pad) + 'px';
-      div.style.width  = (pad * 2)   + 'px';
-      div.style.height = (pad * 2)   + 'px';
+    circles.forEach(function(c) { addCircleDiv(c); });
 
-      div.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
-        if (c.pressed) return;                        // already claimed
-        c.pressed          = true;
-        c.fingerIdentifier = e.changedTouches[0].identifier;
-        onCircleChange();
-      }, { passive: false });
-
-      div.addEventListener('touchend', function(e) {
-        e.preventDefault();
-        for (var i = 0; i < e.changedTouches.length; i++) {
-          if (e.changedTouches[i].identifier === c.fingerIdentifier) {
-            c.pressed          = false;
-            c.fingerIdentifier = null;
-            onCircleChange();
+    // Unclaim overlay: catches taps on claimed circles (which have no div)
+    var overlay = document.createElement('div');
+    overlay.id = 'unclaim-overlay';
+    overlay.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
+      for (var t = 0; t < e.changedTouches.length; t++) {
+        var touch = e.changedTouches[t];
+        var tx = touch.clientX, ty = touch.clientY;
+        // Find nearest claimed circle within tap radius
+        var best = null, bestDist = Infinity;
+        circles.forEach(function(c) {
+          if (!c.pressed) return;
+          var dx = c.x - tx, dy = c.y - ty;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < RING_R + 14 && dist < bestDist) {
+            bestDist = dist;
+            best = c;
           }
+        });
+        if (best) {
+          best.pressed          = false;
+          best.fingerIdentifier = null;
+          addCircleDiv(best);
+          onCircleChange();
         }
-      }, { passive: false });
-
-      div.addEventListener('touchcancel', function(e) {
-        e.preventDefault();
-        for (var i = 0; i < e.changedTouches.length; i++) {
-          if (e.changedTouches[i].identifier === c.fingerIdentifier) {
-            c.pressed          = false;
-            c.fingerIdentifier = null;
-            onCircleChange();
-          }
-        }
-      }, { passive: false });
-
-      document.body.appendChild(div);
-      c.div = div;
-    });
+      }
+    }, { passive: false });
+    document.body.appendChild(overlay);
   }
 
   function removeTouchTargets() {
     document.querySelectorAll('.circle-target').forEach(function(d) { d.remove(); });
     circles.forEach(function(c) { c.div = null; });
+    var overlay = document.getElementById('unclaim-overlay');
+    if (overlay) overlay.remove();
   }
 
   // ---------------------------------------------------------------------------
