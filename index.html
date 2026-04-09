@@ -68,6 +68,15 @@
       touch-action: none;
     }
 
+    /* Catches touchend events during countdown so lifted fingers are detected
+       even though their original circle-target divs have been removed */
+    #touchend-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      touch-action: none;
+    }
+
     /* Play Again button */
     #play-again-btn {
       position: fixed;
@@ -333,6 +342,7 @@
   let revealStart    = null;
   let fadeStart      = null;
   let holdTimer      = null;
+  let autoLitTimer   = null;
 
   // ---------------------------------------------------------------------------
   // CANVAS
@@ -534,16 +544,24 @@
     updateDebugPressed();
     var real = realPressedCount();
     if (appState === S.PLACEMENT) {
-      // Countdown starts when iOS reports 5 detected touches.
-      // Auto-light any remaining circles so all N look ready simultaneously.
-      if (real === 5) {
-        circles.forEach(function(c) {
-          if (!c.pressed) {
-            c.pressed = true;
-            c.autoLit = true;
-          }
-        });
-        transitionTo(S.COUNTDOWN);
+      if (real === 5 && !autoLitTimer) {
+        // 5th finger detected. Delay 175ms before auto-lighting undetected circles
+        // and starting countdown — makes it look like the last few pressed just after.
+        autoLitTimer = setTimeout(function() {
+          autoLitTimer = null;
+          if (realPressedCount() < 5) return;  // a finger lifted during the delay
+          circles.forEach(function(c) {
+            if (!c.pressed) {
+              c.pressed = true;
+              c.autoLit = true;
+            }
+          });
+          transitionTo(S.COUNTDOWN);
+        }, 175);
+      } else if (real < 5 && autoLitTimer) {
+        // A finger lifted before the delay expired — cancel the pending countdown
+        clearTimeout(autoLitTimer);
+        autoLitTimer = null;
       }
     } else if (appState === S.COUNTDOWN) {
       // A real finger lifted — reset. Auto-lit circles are cleared in transitionTo.
@@ -586,7 +604,8 @@
 
     if (next === S.PLACEMENT) {
       countdownStart = null;
-      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (holdTimer)    { clearTimeout(holdTimer);    holdTimer    = null; }
+      if (autoLitTimer) { clearTimeout(autoLitTimer); autoLitTimer = null; }
       circles.forEach(function(c) {
         c.arcProgress   = 0;
         c.assignedColor = null;
@@ -606,6 +625,33 @@
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
+
+      // Full-screen touchend listener so lifted fingers are detected even though
+      // each circle-target div was removed immediately after being claimed.
+      var tel = document.createElement('div');
+      tel.id = 'touchend-overlay';
+      tel.addEventListener('touchend', function(e) {
+        if (appState !== S.COUNTDOWN) return;
+        for (var t = 0; t < e.changedTouches.length; t++) {
+          var id = e.changedTouches[t].identifier;
+          for (var i = 0; i < circles.length; i++) {
+            var c = circles[i];
+            if (c.pressed && !c.autoLit && c.fingerIdentifier === id) {
+              c.pressed          = false;
+              c.fingerIdentifier = null;
+              onCircleChange();
+              break;
+            }
+          }
+        }
+      }, { passive: false });
+      document.body.appendChild(tel);
+    }
+
+    // Remove touchend overlay when leaving COUNTDOWN
+    if (next !== S.COUNTDOWN) {
+      var existing = document.getElementById('touchend-overlay');
+      if (existing) existing.remove();
     }
 
     if (next === S.REVEAL) {
