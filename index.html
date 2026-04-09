@@ -416,6 +416,7 @@
         x:                Math.round(cx + rx * Math.cos(angle)),
         y:                Math.round(cy + ry * Math.sin(angle)),
         pressed:          false,
+        autoLit:          false,
         fingerIdentifier: null,
         arcProgress:      0,
         assignedColor:    null,
@@ -477,7 +478,7 @@
         // Find nearest claimed circle within tap radius
         var best = null, bestDist = Infinity;
         circles.forEach(function(c) {
-          if (!c.pressed) return;
+          if (!c.pressed || c.autoLit) return;  // only real-pressed circles are unclaim-able
           var dx = c.x - tx, dy = c.y - ty;
           var dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < RING_R + 14 && dist < bestDist) {
@@ -498,7 +499,7 @@
 
   function removeTouchTargets() {
     document.querySelectorAll('.circle-target').forEach(function(d) { d.remove(); });
-    circles.forEach(function(c) { c.div = null; });
+    circles.forEach(function(c) { c.div = null; c.autoLit = false; });
     var overlay = document.getElementById('unclaim-overlay');
     if (overlay) overlay.remove();
   }
@@ -512,23 +513,41 @@
     return n;
   }
 
+  // Only counts circles physically detected by iOS (not auto-lit stand-ins)
+  function realPressedCount() {
+    var n = 0;
+    for (var i = 0; i < circles.length; i++) if (circles[i].pressed && !circles[i].autoLit) n++;
+    return n;
+  }
+
   function updateDebugPressed() {
     var el = document.getElementById('debug-pressed');
     if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
       el.style.display = 'block';
-      el.textContent = pressedCount() + ' / ' + settings.numPlayers + ' pressed';
+      el.textContent = realPressedCount() + ' / ' + settings.numPlayers + ' pressed';
     } else {
       el.style.display = 'none';
     }
   }
 
   function onCircleChange() {
-    var n = pressedCount();
     updateDebugPressed();
+    var real = realPressedCount();
     if (appState === S.PLACEMENT) {
-      if (n === settings.numPlayers) transitionTo(S.COUNTDOWN);
+      // Countdown starts when iOS reports 5 detected touches.
+      // Auto-light any remaining circles so all N look ready simultaneously.
+      if (real === 5) {
+        circles.forEach(function(c) {
+          if (!c.pressed) {
+            c.pressed = true;
+            c.autoLit = true;
+          }
+        });
+        transitionTo(S.COUNTDOWN);
+      }
     } else if (appState === S.COUNTDOWN) {
-      if (n < settings.numPlayers) transitionTo(S.PLACEMENT);
+      // A real finger lifted — reset. Auto-lit circles are cleared in transitionTo.
+      if (real < 5) transitionTo(S.PLACEMENT);
     }
   }
 
@@ -572,8 +591,14 @@
         c.arcProgress   = 0;
         c.assignedColor = null;
         c.groupIndex    = -2;
-        // c.pressed and c.fingerIdentifier intentionally preserved
-        // so re-pressing just the lifted circle suffices
+        // Auto-lit circles were assumed present but not tracked — reset them to grey
+        // and recreate their touch targets so they can be claimed for real next time.
+        if (c.autoLit) {
+          c.pressed = false;
+          c.autoLit = false;
+          addCircleDiv(c);
+        }
+        // Real c.pressed preserved so only the lifted circle goes grey
       });
       updateDebugPressed();
     }
