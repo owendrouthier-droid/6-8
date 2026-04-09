@@ -8,7 +8,915 @@
 <!--
   6-8 -- Multiplayer finger-selection PWA
   ========================================
+  Deployment options (HTTPS required for iOS "Add to H<!DOCTYPE html>
+<!--
+  6-8 -- Multiplayer finger-selection PWA
+  ========================================
   Deployment options (HTTPS required for iOS "Add to Home Screen"):
+
+  GITHUB PAGES:
+    1. Create a new repo at github.com (e.g. "6-8")
+    2. Add this file as index.html, commit, and push to the main branch
+    3. Go to repo Settings -> Pages -> Source: Deploy from branch -> main / (root)
+    4. Your app is live at https://<username>.github.io/6-8/
+
+  NETLIFY DROP:
+    1. Go to app.netlify.com/drop
+    2. Drag and drop this index.html file onto the page
+    3. You'll get an instant HTTPS URL to share with friends
+
+  USAGE:
+    Open the HTTPS URL in Safari on iPhone.
+    Tap Share -> "Add to Home Screen".
+    Launch from the Home Screen icon for full-screen experience.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="6-8">
+  <meta name="theme-color" content="#000000">
+  <title>6-8</title>
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%226-8%22%2C%22short_name%22%3A%226-8%22%2C%22display%22%3A%22fullscreen%22%2C%22background_color%22%3A%22%23000000%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%5D%7D">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    }
+
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0;
+      touch-action: none;
+      pointer-events: none; /* canvas is purely visual — circle divs and setup screen handle all input */
+    }
+
+    /* Invisible per-circle touch targets */
+    .circle-target {
+      position: fixed;
+      border-radius: 50%;
+      z-index: 10;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Play Again button */
+    #play-again-btn {
+      position: fixed;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 30;
+      padding: 18px 52px;
+      border: none;
+      border-radius: 16px;
+      background: #fff;
+      color: #000;
+      font-size: 17px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      touch-action: manipulation;
+      letter-spacing: -0.2px;
+    }
+    #play-again-btn:active { background: rgba(255,255,255,0.82); }
+
+    /* ---- Setup screen ---- */
+    #setup-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: calc(32px + env(safe-area-inset-top)) 28px calc(32px + env(safe-area-inset-bottom));
+      touch-action: auto;
+      border: 3px solid red; /* DEBUG: confirm setup screen is on top */
+    }
+
+    /* DEBUG tap-test box */
+    #debug-tap {
+      width: 100%;
+      padding: 22px;
+      border-radius: 14px;
+      background: #FF9500;
+      color: #000;
+      font-size: 22px;
+      font-weight: 800;
+      font-family: inherit;
+      text-align: center;
+      letter-spacing: 1px;
+      touch-action: manipulation;
+      cursor: pointer;
+      border: none;
+      transition: background 0.1s;
+    }
+
+    /* DEBUG event log */
+    #debug-log {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-family: monospace;
+      text-align: center;
+      min-height: 36px;
+    }
+    #setup-screen.hidden { display: none; }
+
+    #setup-inner {
+      width: 100%;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    #setup-appname {
+      display: block;
+      text-align: center;
+      font-size: 76px;
+      font-weight: 800;
+      color: rgba(255,255,255,0.92);
+      letter-spacing: -3px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .setup-field { display: flex; flex-direction: column; gap: 10px; }
+
+    .setup-field-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .setup-seg-track {
+      display: flex;
+      background: rgba(255,255,255,0.07);
+      border-radius: 13px;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .setup-seg-btn {
+      flex: 1;
+      padding: 12px 8px;
+      border: none;
+      border-radius: 11px;
+      background: transparent;
+      color: rgba(255,255,255,0.4);
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.15s, color 0.15s;
+    }
+    .setup-seg-btn.active { background: rgba(255,255,255,0.18); color: #fff; }
+
+    #setup-group-controls { display: flex; flex-direction: column; gap: 10px; }
+    #setup-group-controls.hidden { display: none; }
+
+    .setup-counter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #setup-counter-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    #setup-group-size {
+      font-size: 40px;
+      font-weight: 700;
+      color: #fff;
+      text-align: center;
+      width: 80px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .counter-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.38);
+      letter-spacing: 0.2px;
+    }
+
+    .counter-btn {
+      width: 46px; height: 46px;
+      border-radius: 23px;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font-size: 26px;
+      font-weight: 300;
+      font-family: inherit;
+      line-height: 1;
+      cursor: pointer;
+      touch-action: manipulation;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.15s, background 0.1s;
+    }
+    .counter-btn:disabled { opacity: 0.2; }
+    .counter-btn:not(:disabled):active { background: rgba(255,255,255,0.22); }
+
+    #setup-start {
+      margin-top: 4px;
+      padding: 18px;
+      border: none;
+      border-radius: 16px;
+      background: #fff;
+      color: #000;
+      font-size: 17px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      touch-action: manipulation;
+      width: 100%;
+      letter-spacing: -0.2px;
+    }
+    #setup-start:active { background: rgba(255,255,255,0.82); }
+  </style>
+</head>
+<body>
+  <canvas id="app"></canvas>
+
+  <div id="setup-screen" role="dialog" aria-modal="true" aria-label="Game setup">
+    <div id="setup-inner">
+      <span id="setup-appname">6-8</span>
+
+      <div class="setup-field">
+        <p class="setup-field-label">Players</p>
+        <div class="setup-seg-track" id="setup-players-seg">
+          <button class="setup-seg-btn active" data-players="6">6</button>
+          <button class="setup-seg-btn"        data-players="7">7</button>
+          <button class="setup-seg-btn"        data-players="8">8</button>
+        </div>
+      </div>
+
+      <div class="setup-field">
+        <p class="setup-field-label">Mode</p>
+        <div class="setup-seg-track" id="setup-mode-seg">
+          <button class="setup-seg-btn active" data-smode="single">Single</button>
+          <button class="setup-seg-btn"        data-smode="group">Groups</button>
+        </div>
+      </div>
+
+      <div class="setup-field hidden" id="setup-group-controls">
+        <p class="setup-field-label">Group size</p>
+        <div class="setup-counter-row">
+          <button id="setup-dec" class="counter-btn" aria-label="Decrease group size">&#8722;</button>
+          <div id="setup-counter-center">
+            <span id="setup-group-size">2</span>
+            <span class="counter-label">people per group</span>
+          </div>
+          <button id="setup-inc" class="counter-btn" aria-label="Increase group size">&#43;</button>
+        </div>
+      </div>
+
+      <!-- DEBUG: tap test + event log — remove before release -->
+      <button id="debug-tap">TAP ME</button>
+      <div id="debug-log">waiting for events...</div>
+
+      <button id="setup-start">Start</button>
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+
+  // ---------------------------------------------------------------------------
+  // CONSTANTS
+  // ---------------------------------------------------------------------------
+  const CIRCLE_R     = 62;
+  const RING_GAP     = 8;
+  const RING_W       = 8;
+  const RING_R       = CIRCLE_R + RING_GAP + RING_W / 2;
+
+  const COUNTDOWN_MS = 3000;
+  const REVEAL_MS    = 440;
+  const FADE_MS      = 300;
+  const HOLD_MS      = 2500;
+
+  const GREY_FILL    = '#4A4A4F';
+  const GREY_PRESSED = '#8E8E93';
+  const GREY_OUT     = '#2A2A2E';
+
+  const COLORS = [
+    '#FF3B30', '#FF9500', '#FFCC00', '#34C759',
+    '#00C7BE', '#5856D6', '#FF2D55', '#32ADE6',
+  ];
+
+  const S = Object.freeze({
+    PLACEMENT:   'PLACEMENT',
+    COUNTDOWN:   'COUNTDOWN',
+    REVEAL:      'REVEAL',
+    POST_REVEAL: 'POST_REVEAL',
+    FADING:      'FADING',
+  });
+
+  // ---------------------------------------------------------------------------
+  // APP STATE
+  // ---------------------------------------------------------------------------
+  let appState = S.PLACEMENT;  // starts in PLACEMENT; setup screen overlay sits on top
+
+  const settings = { mode: 'single', groupSize: 2, numPlayers: 6 };
+
+  /**
+   * @type {Array<{id:number, x:number, y:number, pressed:boolean,
+   *   fingerIdentifier:number|null, arcProgress:number,
+   *   assignedColor:string|null, groupIndex:number, div:HTMLElement|null}>}
+   */
+  let circles      = [];
+  let frozenCircles = [];
+
+  let countdownStart = null;
+  let revealStart    = null;
+  let fadeStart      = null;
+  let holdTimer      = null;
+
+  // ---------------------------------------------------------------------------
+  // CANVAS
+  // ---------------------------------------------------------------------------
+  const canvas = document.getElementById('app');
+  const ctx    = canvas.getContext('2d');
+  let dpr      = 1;
+
+  function resizeCanvas() {
+    dpr = window.devicePixelRatio || 1;
+    const W = window.innerWidth, H = window.innerHeight;
+    canvas.width        = W * dpr;
+    canvas.height       = H * dpr;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+  }
+
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    if (circles.length === 0) return;
+    if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
+      removeTouchTargets();
+      createCircles();
+      createTouchTargets();
+      if (appState === S.COUNTDOWN) transitionTo(S.PLACEMENT);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // COLOR HELPERS
+  // ---------------------------------------------------------------------------
+  function hexToRgb(hex) {
+    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+  }
+
+  function lerpColor(a, b, t) {
+    const [r1,g1,b1] = hexToRgb(a), [r2,g2,b2] = hexToRgb(b);
+    return 'rgb('+Math.round(r1+(r2-r1)*t)+','+Math.round(g1+(g2-g1)*t)+','+Math.round(b1+(b2-b1)*t)+')';
+  }
+
+  function easeOut3(t) { return 1 - Math.pow(1 - t, 3); }
+
+  // ---------------------------------------------------------------------------
+  // SHUFFLE
+  // ---------------------------------------------------------------------------
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CIRCLE LAYOUT
+  // ---------------------------------------------------------------------------
+  function createCircles() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const N = settings.numPlayers;
+
+    // Leave room for safe areas and circle radius so nothing clips off-screen
+    const safeTop    = 52;   // status bar estimate
+    const safeBottom = 36;   // home indicator estimate
+    const margin     = RING_R + 14;
+
+    const minY = safeTop    + margin;
+    const maxY = H - safeBottom - margin;
+    const minX = margin;
+    const maxX = W - margin;
+
+    const cx = W / 2;
+    const cy = (minY + maxY) / 2;
+    const rx = (maxX - minX) / 2;
+    const ry = (maxY - minY) / 2;
+
+    circles = Array.from({ length: N }, function(_, i) {
+      const angle = -Math.PI / 2 + (2 * Math.PI * i / N);
+      return {
+        id:               i,
+        x:                Math.round(cx + rx * Math.cos(angle)),
+        y:                Math.round(cy + ry * Math.sin(angle)),
+        pressed:          false,
+        fingerIdentifier: null,
+        arcProgress:      0,
+        assignedColor:    null,
+        groupIndex:       -2,
+        div:              null,
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TOUCH TARGETS
+  // Each circle gets an invisible fixed-position div sized to cover it.
+  // Touches on the div trigger press/unpress for that specific circle.
+  // Because each circle is its own DOM target, iOS detects each finger
+  // landing one at a time on separate elements -- no simultaneous tracking needed.
+  // ---------------------------------------------------------------------------
+  function createTouchTargets() {
+    const pad = RING_R + 14;  // touch area a bit larger than the visual ring
+    circles.forEach(function(c) {
+      const div = document.createElement('div');
+      div.className = 'circle-target';
+      div.style.left   = (c.x - pad) + 'px';
+      div.style.top    = (c.y - pad) + 'px';
+      div.style.width  = (pad * 2)   + 'px';
+      div.style.height = (pad * 2)   + 'px';
+
+      div.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
+        if (c.pressed) return;                        // already claimed
+        c.pressed          = true;
+        c.fingerIdentifier = e.changedTouches[0].identifier;
+        onCircleChange();
+      }, { passive: false });
+
+      div.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          if (e.changedTouches[i].identifier === c.fingerIdentifier) {
+            c.pressed          = false;
+            c.fingerIdentifier = null;
+            onCircleChange();
+          }
+        }
+      }, { passive: false });
+
+      div.addEventListener('touchcancel', function(e) {
+        e.preventDefault();
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          if (e.changedTouches[i].identifier === c.fingerIdentifier) {
+            c.pressed          = false;
+            c.fingerIdentifier = null;
+            onCircleChange();
+          }
+        }
+      }, { passive: false });
+
+      document.body.appendChild(div);
+      c.div = div;
+    });
+  }
+
+  function removeTouchTargets() {
+    document.querySelectorAll('.circle-target').forEach(function(d) { d.remove(); });
+    circles.forEach(function(c) { c.div = null; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // PRESS LOGIC
+  // ---------------------------------------------------------------------------
+  function pressedCount() {
+    var n = 0;
+    for (var i = 0; i < circles.length; i++) if (circles[i].pressed) n++;
+    return n;
+  }
+
+  function onCircleChange() {
+    var n = pressedCount();
+    if (appState === S.PLACEMENT) {
+      if (n === settings.numPlayers) transitionTo(S.COUNTDOWN);
+    } else if (appState === S.COUNTDOWN) {
+      if (n < settings.numPlayers) transitionTo(S.PLACEMENT);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ASSIGNMENT
+  // ---------------------------------------------------------------------------
+  function assignResults() {
+    var idxs = shuffle(circles.map(function(_, i) { return i; }));
+
+    if (settings.mode === 'single') {
+      idxs.forEach(function(idx, i) {
+        circles[idx].groupIndex    = i === 0 ? 0 : -1;
+        circles[idx].assignedColor = i === 0 ? COLORS[0] : null;
+      });
+    } else {
+      var g         = settings.groupSize;
+      var numGroups = Math.floor(idxs.length / g);
+      idxs.forEach(function(idx, i) {
+        var gIdx = Math.floor(i / g);
+        if (gIdx < numGroups) {
+          circles[idx].groupIndex    = gIdx;
+          circles[idx].assignedColor = COLORS[gIdx];
+        } else {
+          circles[idx].groupIndex    = -1;
+          circles[idx].assignedColor = null;
+        }
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // STATE TRANSITIONS
+  // ---------------------------------------------------------------------------
+  function transitionTo(next) {
+    appState = next;
+
+    if (next === S.PLACEMENT) {
+      countdownStart = null;
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      circles.forEach(function(c) {
+        c.arcProgress   = 0;
+        c.assignedColor = null;
+        c.groupIndex    = -2;
+        // c.pressed and c.fingerIdentifier intentionally preserved
+        // so re-pressing just the lifted circle suffices
+      });
+    }
+
+    if (next === S.COUNTDOWN) {
+      countdownStart = null;  // set on first tick
+      circles.forEach(function(c) { c.arcProgress = 0; });
+    }
+
+    if (next === S.REVEAL) {
+      assignResults();
+      revealStart = null;
+    }
+
+    if (next === S.POST_REVEAL) {
+      frozenCircles = circles.map(function(c) {
+        return { x: c.x, y: c.y, groupIndex: c.groupIndex, assignedColor: c.assignedColor };
+      });
+      holdTimer = setTimeout(function() {
+        holdTimer = null;
+        transitionTo(S.FADING);
+      }, HOLD_MS);
+    }
+
+    if (next === S.FADING) {
+      fadeStart = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // START GAME  (called by Setup screen Start button)
+  // ---------------------------------------------------------------------------
+  // DEBUG: wire tap-test button and event log -- remove before release
+  (function() {
+    var tapBtn = document.getElementById('debug-tap');
+    var log    = document.getElementById('debug-log');
+    var colors = ['#FF9500','#34C759','#FF3B30','#32ADE6','#FF2D55','#FFCC00'];
+    var ci     = 0;
+
+    function logEvent(label) {
+      log.textContent = label + ' @ ' + new Date().toLocaleTimeString();
+      ci = (ci + 1) % colors.length;
+      tapBtn.style.background = colors[ci];
+    }
+
+    tapBtn.addEventListener('touchstart',  function(e) { e.preventDefault(); logEvent('touchstart'); }, { passive: false });
+    tapBtn.addEventListener('touchend',    function(e) { e.preventDefault(); logEvent('touchend');   }, { passive: false });
+    tapBtn.addEventListener('click',       function()  { logEvent('click'); });
+
+    // Also log on the Start button to check if it even sees events
+    var startBtn = document.getElementById('setup-start');
+    startBtn.addEventListener('touchstart', function(e) { logEvent('Start: touchstart'); }, { passive: true });
+    startBtn.addEventListener('click',      function()  { logEvent('Start: click');      });
+  })();
+
+  function startGame() {
+    // DEBUG: remove canvas entirely while setup screen was showing -- re-add it now
+    if (!document.getElementById('app')) {
+      document.body.insertBefore(canvas, document.body.firstChild);
+    }
+    document.getElementById('setup-screen').classList.add('hidden');
+    createCircles();
+    createTouchTargets();
+    transitionTo(S.PLACEMENT);
+  }
+
+  function showPlayAgain() {
+    removeTouchTargets();
+    // DEBUG: remove canvas from DOM while setup screen is showing
+    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+    var btn = document.createElement('button');
+    btn.id          = 'play-again-btn';
+    btn.textContent = 'Play Again';
+    btn.addEventListener('click', function() {
+      btn.remove();
+      circles = [];
+      document.getElementById('setup-screen').classList.remove('hidden');
+      syncSetupUI();
+    });
+    document.body.appendChild(btn);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DRAW PRIMITIVE
+  // ---------------------------------------------------------------------------
+  function drawCircle(x, y, color, alpha, scale, arcProg, showRing) {
+    if (alpha <= 0 || scale <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = Math.min(alpha, 1);
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, CIRCLE_R * scale, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (showRing) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.lineWidth   = RING_W;
+      ctx.lineCap     = 'butt';
+      ctx.beginPath();
+      ctx.arc(x, y, RING_R, 0, Math.PI * 2);
+      ctx.stroke();
+
+      if (arcProg > 0) {
+        var end = -Math.PI / 2 + Math.PI * 2 * Math.min(arcProg, 1);
+        ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+        ctx.lineWidth   = RING_W;
+        ctx.lineCap     = 'round';
+        ctx.beginPath();
+        ctx.arc(x, y, RING_R, -Math.PI / 2, end);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: PLACEMENT
+  // ---------------------------------------------------------------------------
+  function renderPlacement() {
+    var W = window.innerWidth, H = window.innerHeight;
+
+    circles.forEach(function(c) {
+      drawCircle(c.x, c.y, c.pressed ? GREY_PRESSED : GREY_FILL, 1, 1, 0, false);
+    });
+
+    // Center status text
+    var n    = pressedCount();
+    var need = settings.numPlayers - n;
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    if (n === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.font      = Math.round(W * 0.042) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillText('press your circle', W / 2, H / 2);
+    } else if (need > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.32)';
+      ctx.font      = 'bold ' + Math.round(W * 0.055) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillText(n + ' / ' + settings.numPlayers, W / 2, H / 2);
+    }
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: COUNTDOWN
+  // ---------------------------------------------------------------------------
+  function renderCountdown(now) {
+    if (!countdownStart) countdownStart = now;
+    var progress = Math.min((now - countdownStart) / COUNTDOWN_MS, 1);
+    var W = window.innerWidth, H = window.innerHeight;
+
+    circles.forEach(function(c) {
+      c.arcProgress = progress;
+      drawCircle(c.x, c.y, GREY_FILL, 1, 1, progress, true);
+    });
+
+    // Large countdown number in the center
+    var secsLeft = Math.ceil(COUNTDOWN_MS * (1 - progress) / 1000);
+    if (secsLeft < 1) secsLeft = 1;
+    var numSize = Math.round(Math.min(W * 0.28, 120));
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = 'rgba(255,255,255,0.88)';
+    ctx.font         = 'bold ' + numSize + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText(secsLeft, W / 2, H / 2);
+    ctx.restore();
+
+    if (progress >= 1) transitionTo(S.REVEAL);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: REVEAL
+  // ---------------------------------------------------------------------------
+  function renderReveal(now) {
+    if (!revealStart) revealStart = now;
+    var raw  = Math.min((now - revealStart) / REVEAL_MS, 1);
+    var easy = easeOut3(raw);
+
+    circles.forEach(function(c) {
+      var gIdx = c.groupIndex;
+      var color, alpha, scale;
+
+      if (gIdx === -1) {
+        scale = 1 - easy;
+        alpha = 1 - easy;
+        color = GREY_OUT;
+      } else if (settings.mode === 'single' && gIdx !== 0) {
+        alpha = 1 - easy * 0.72;
+        scale = 1;
+        color = GREY_FILL;
+      } else {
+        color = lerpColor(GREY_FILL, c.assignedColor, easy);
+        alpha = 1;
+        if (settings.mode === 'single') {
+          var pulse = raw < 0.5 ? raw * 2 : 2 - raw * 2;
+          scale = 1 + pulse * 0.20;
+        } else {
+          scale = raw < 0.55
+            ? 0.82 + (raw / 0.55) * 0.30
+            : 1.12 - ((raw - 0.55) / 0.45) * 0.12;
+        }
+      }
+
+      drawCircle(c.x, c.y, color, alpha, Math.max(scale, 0), 0, false);
+    });
+
+    if (raw >= 1) transitionTo(S.POST_REVEAL);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: POST_REVEAL  (frozen)
+  // ---------------------------------------------------------------------------
+  function renderPostReveal() {
+    frozenCircles.forEach(function(c) {
+      if (c.groupIndex === -1) return;
+      var isSingleLoser = settings.mode === 'single' && c.groupIndex !== 0;
+      drawCircle(c.x, c.y,
+        isSingleLoser ? GREY_FILL : c.assignedColor,
+        isSingleLoser ? 0.28 : 1,
+        1, 0, false);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: FADING
+  // ---------------------------------------------------------------------------
+  function renderFading(now) {
+    if (!fadeStart) fadeStart = now;
+    var raw = Math.min((now - fadeStart) / FADE_MS, 1);
+
+    frozenCircles.forEach(function(c) {
+      if (c.groupIndex === -1) return;
+      var isSingleLoser = settings.mode === 'single' && c.groupIndex !== 0;
+      var baseAlpha = isSingleLoser ? 0.28 : 1;
+      var color     = isSingleLoser ? GREY_FILL : c.assignedColor;
+      drawCircle(c.x, c.y, color, baseAlpha * (1 - raw), 1, 0, false);
+    });
+
+    if (raw >= 1) {
+      // Remove touch targets while still in FADING state so any residual
+      // touchcancel events from removed divs are ignored by onCircleChange.
+      removeTouchTargets();
+      frozenCircles = [];
+      circles       = [];
+      appState      = S.PLACEMENT;  // canvas draws nothing (empty circles)
+      showPlayAgain();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // MAIN RAF LOOP
+  // ---------------------------------------------------------------------------
+  function tick(now) {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+    switch (appState) {
+      case S.PLACEMENT:   renderPlacement();       break;
+      case S.COUNTDOWN:   renderCountdown(now);    break;
+      case S.REVEAL:      renderReveal(now);        break;
+      case S.POST_REVEAL: renderPostReveal();       break;
+      case S.FADING:      renderFading(now);        break;
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SETUP SCREEN
+  // ---------------------------------------------------------------------------
+  var setupGroupCtrl = document.getElementById('setup-group-controls');
+  var setupGroupSize = document.getElementById('setup-group-size');
+  var setupDecBtn    = document.getElementById('setup-dec');
+  var setupIncBtn    = document.getElementById('setup-inc');
+
+  function syncSetupUI() {
+    document.querySelectorAll('#setup-players-seg .setup-seg-btn').forEach(function(btn) {
+      btn.classList.toggle('active', parseInt(btn.dataset.players, 10) === settings.numPlayers);
+    });
+    document.querySelectorAll('#setup-mode-seg .setup-seg-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.smode === settings.mode);
+    });
+    setupGroupCtrl.classList.toggle('hidden', settings.mode !== 'group');
+    setupGroupSize.textContent = settings.groupSize;
+    setupDecBtn.disabled = settings.groupSize <= 2;
+    setupIncBtn.disabled = settings.groupSize >= 4;
+  }
+
+  document.querySelectorAll('#setup-players-seg .setup-seg-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      settings.numPlayers = parseInt(btn.dataset.players, 10);
+      syncSetupUI();
+    });
+  });
+
+  document.querySelectorAll('#setup-mode-seg .setup-seg-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      settings.mode = btn.dataset.smode;
+      syncSetupUI();
+    });
+  });
+
+  setupDecBtn.addEventListener('click', function() {
+    if (settings.groupSize > 2) { settings.groupSize--; syncSetupUI(); }
+  });
+  setupIncBtn.addEventListener('click', function() {
+    if (settings.groupSize < 4) { settings.groupSize++; syncSetupUI(); }
+  });
+
+  document.getElementById('setup-start').addEventListener('click', function() {
+    startGame();
+  });
+
+  // ---------------------------------------------------------------------------
+  // APPLE TOUCH ICON
+  // ---------------------------------------------------------------------------
+  function injectIcon() {
+    var size = 180;
+    var ic   = document.createElement('canvas');
+    ic.width = ic.height = size;
+    var ictx = ic.getContext('2d');
+    ictx.fillStyle = '#000';
+    ictx.fillRect(0, 0, size, size);
+    ictx.fillStyle    = '#fff';
+    ictx.font         = 'bold 66px -apple-system, Arial, sans-serif';
+    ictx.textAlign    = 'center';
+    ictx.textBaseline = 'middle';
+    ictx.fillText('6-8', size / 2, size / 2);
+    var link = document.createElement('link');
+    link.rel  = 'apple-touch-icon';
+    link.href = ic.toDataURL('image/png');
+    document.head.appendChild(link);
+  }
+
+  // ---------------------------------------------------------------------------
+  // INIT
+  // ---------------------------------------------------------------------------
+  injectIcon();
+  resizeCanvas();
+  syncSetupUI();
+  // DEBUG: remove canvas from DOM on load so setup screen has zero interference
+  if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+  requestAnimationFrame(tick);
+
+  </script>
+</body>
+</html>
+ome Screen"):
 
   GITHUB PAGES:
     1. Create a new repo at github.com (e.g. "6-8")
