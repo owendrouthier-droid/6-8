@@ -360,8 +360,7 @@
   let revealStart    = null;
   let fadeStart      = null;
   let holdTimer      = null;
-  let autoLitTimer      = null;
-  let frozenIdentifiers = null;  // Set of real fingerIdentifiers snapshotted at countdown start
+  let autoLitTimer   = null;
 
   // ---------------------------------------------------------------------------
   // CANVAS
@@ -474,69 +473,52 @@
     div.style.width  = (pad * 2)   + 'px';
     div.style.height = (pad * 2)   + 'px';
 
-    div.addEventListener('touchstart', function(e) {
+    // Div lives in two states:
+    //   UNCLAIMED — touchstart listener active, pointer-events auto
+    //   CLAIMED   — touchend/touchcancel listeners active, pointer-events none
+    //               (pointer-events:none prevents the 6th+ finger from landing here)
+
+    function onTouchStart(e) {
       e.preventDefault();
-      if (appState !== S.PLACEMENT) return;  // new claims only during PLACEMENT
-      if (c.autoLit) return;                 // auto-lit circles are inert
-      if (c.pressed) return;                 // already claimed by a real finger
+      if (appState !== S.PLACEMENT) return;
       var newId = e.changedTouches[0].identifier;
-      // Reject if this identifier is already tracked on any circle — iOS reuses
-      // identifiers after a touch ends, and we must not double-claim.
+      // Reject if identifier already tracked (iOS reuses ids after a touch ends)
       for (var i = 0; i < circles.length; i++) {
         if (circles[i].fingerIdentifier === newId) return;
       }
       c.pressed          = true;
       c.fingerIdentifier = newId;
+      // Transition div to CLAIMED state
+      div.removeEventListener('touchstart', onTouchStart);
+      div.addEventListener('touchend',    onLift, { passive: true });
+      div.addEventListener('touchcancel', onLift, { passive: true });
+      div.style.pointerEvents = 'none';  // 6th+ fingers land on dead elements
       onCircleChange('touchstart');
-    }, { passive: false });
+    }
 
-    function liftHandler(e) {
-      if (appState === S.COUNTDOWN) {
-        // During countdown, ONLY reference the frozen snapshot taken at countdown
-        // start. Per-circle state (c.fingerIdentifier) is not consulted here —
-        // this prevents iOS identifier reuse on extra fingers from causing a false
-        // reset if a reused id happens to match what is stored on a circle.
-        if (!frozenIdentifiers) return;
-        for (var t = 0; t < e.changedTouches.length; t++) {
-          var id = e.changedTouches[t].identifier;
-          if (!frozenIdentifiers.has(id)) continue;        // not a real countdown finger
-          var stillActive = false;
-          for (var a = 0; a < e.touches.length; a++) {
-            if (e.touches[a].identifier === id) { stillActive = true; break; }
-          }
-          if (stillActive) continue;                       // finger still physically down
-          // Find and unpress the real circle that owns this frozen identifier
-          for (var i = 0; i < circles.length; i++) {
-            var rc = circles[i];
-            if (!rc.autoLit && rc.fingerIdentifier === id) {
-              rc.pressed          = false;
-              rc.fingerIdentifier = null;
-              onCircleChange('lift');
-              return;
-            }
-          }
-        }
-        return;  // in COUNTDOWN take no other action
-      }
-
-      // PLACEMENT: per-circle check using this circle's own stored identifier
-      if (!c.pressed || c.autoLit) return;
+    function onLift(e) {
+      if (!c.pressed) return;
       for (var t = 0; t < e.changedTouches.length; t++) {
         if (e.changedTouches[t].identifier !== c.fingerIdentifier) continue;
+        // Confirm the finger is truly gone (not iOS reuse of the same id)
         var stillActive = false;
         for (var a = 0; a < e.touches.length; a++) {
           if (e.touches[a].identifier === c.fingerIdentifier) { stillActive = true; break; }
         }
         if (stillActive) return;
+        // Genuine lift — restore div to UNCLAIMED state
         c.pressed          = false;
         c.fingerIdentifier = null;
+        div.removeEventListener('touchend',    onLift);
+        div.removeEventListener('touchcancel', onLift);
+        div.addEventListener('touchstart', onTouchStart, { passive: false });
+        div.style.pointerEvents = '';
         onCircleChange('lift');
         return;
       }
     }
-    div.addEventListener('touchend',    liftHandler, { passive: true });
-    div.addEventListener('touchcancel', liftHandler, { passive: true });
 
+    div.addEventListener('touchstart', onTouchStart, { passive: false });
     document.body.appendChild(div);
     c.div = div;
   }
@@ -581,7 +563,8 @@
             if (!c.pressed) {
               c.pressed = true;
               c.autoLit = true;
-              // div stays in DOM — liftHandler ignores auto-lit circles
+              // Kill the div so 6th+ fingers physically land on dead elements
+              if (c.div) c.div.style.pointerEvents = 'none';
             }
           });
           transitionTo(S.COUNTDOWN);
@@ -631,37 +614,33 @@
     appState = next;
 
     if (next === S.PLACEMENT) {
-      countdownStart    = null;
-      frozenIdentifiers = null;
+      countdownStart = null;
       if (holdTimer)    { clearTimeout(holdTimer);    holdTimer    = null; }
       if (autoLitTimer) { clearTimeout(autoLitTimer); autoLitTimer = null; }
       circles.forEach(function(c) {
         c.arcProgress   = 0;
         c.assignedColor = null;
         c.groupIndex    = -2;
-        // Auto-lit circles had no real finger — reset so they can be claimed fresh.
-        // Divs are permanent; no need to recreate them.
         if (c.autoLit) {
           c.pressed          = false;
           c.autoLit          = false;
           c.fingerIdentifier = null;
+          // Restore div to UNCLAIMED state — pointer-events back, touchstart re-enabled
+          if (c.div) c.div.style.pointerEvents = '';
         }
-        // Real circles: c.pressed preserved (lifted circle already set false by its div's liftHandler)
+        // Real circles: c.pressed and div state preserved — the lifted circle's
+        // onLift handler already restored its div to UNCLAIMED state before
+        // calling onCircleChange, so no action needed here.
       });
     }
 
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
-      // Snapshot the identifiers of the 5 real fingers at countdown start.
-      // liftHandlers reference ONLY this set during countdown — never per-circle
-      // state — to guard against iOS reusing these identifiers for extra fingers.
-      frozenIdentifiers = new Set();
-      circles.forEach(function(c) {
-        if (!c.autoLit && c.fingerIdentifier !== null) {
-          frozenIdentifiers.add(c.fingerIdentifier);
-        }
-      });
+      // At this point every circle div is either:
+      //   real claimed  → pointer-events:none, only touchend/touchcancel attached
+      //   auto-lit      → pointer-events:none, touchstart still attached but unreachable
+      // Extra fingers land on the canvas (pointer-events:none) or body — no handlers fire.
     }
 
     if (next === S.REVEAL) {
