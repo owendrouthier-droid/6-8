@@ -476,7 +476,8 @@
     div.addEventListener('touchstart', function(e) {
       e.preventDefault();
       if (appState !== S.PLACEMENT) return;  // new claims only during PLACEMENT
-      if (c.pressed) return;                 // already claimed
+      if (c.autoLit) return;                 // auto-lit circles are inert
+      if (c.pressed) return;                 // already claimed by a real finger
       c.pressed          = true;
       c.fingerIdentifier = e.changedTouches[0].identifier;
       onCircleChange();
