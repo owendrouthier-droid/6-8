@@ -482,6 +482,20 @@
   }, { passive: false });
 
   function handleLift(e) {
+    // --- debug: snapshot touch lists at time of lift ---
+    var activeIds  = Array.prototype.map.call(e.touches,        function(t) { return t.identifier; });
+    var changedIds = Array.prototype.map.call(e.changedTouches, function(t) { return t.identifier; });
+    var circleInfo = circles.map(function(c, i) {
+      if (!c.pressed || c.autoLit) return null;
+      return 'c' + i + '(id=' + c.fingerIdentifier + ')';
+    }).filter(Boolean);
+    dbgLiftInfo =
+      'LIFT [' + appState + ']' + '<br>' +
+      'circles: ' + (circleInfo.length ? circleInfo.join(' ') : 'none') + '<br>' +
+      'active:  [' + activeIds.join(',') + ']' + '<br>' +
+      'changed: [' + changedIds.join(',') + ']';
+    // --- end debug snapshot ---
+
     if (appState === S.PLACEMENT) {
       // Unclaim any real circle whose position no longer has an active touch.
       var changed = false;
@@ -492,7 +506,10 @@
         for (var t = 0; t < e.touches.length; t++) {
           if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
         }
-        if (!covered) { c.pressed = false; changed = true; }
+        if (!covered) {
+          dbgLiftInfo += '<br>UNCOVERED c' + i + ' id=' + c.fingerIdentifier + ' not in active';
+          c.pressed = false; changed = true;
+        }
       }
       if (changed) onCircleChange('lift');
 
@@ -507,6 +524,7 @@
           if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
         }
         if (!covered) {
+          dbgLiftInfo += '<br>UNCOVERED c' + i + ' id=' + c.fingerIdentifier + ' not in active → ABORT';
           transitionTo(S.PLACEMENT);
           // Re-claim circles that still have an active touch so players
           // don't have to lift and re-press their fingers.
@@ -958,6 +976,7 @@
   var dbgEl       = document.getElementById('dbg');
   var dbgLastEvt  = 'none';
   var dbgLastTime = '--';
+  var dbgLiftInfo = '';
 
   function dbgUpdate() {
     var perCircle = circles.map(function(c, i) {
@@ -969,7 +988,8 @@
       (circles.length ? perCircle + '<br>' : '') +
       'trigger: ' + dbgLastTrigger + '<br>' +
       'evt: '     + dbgLastEvt + '<br>' +
-      'time: '    + dbgLastTime;
+      'time: '    + dbgLastTime +
+      (dbgLiftInfo ? '<br><span style="color:#FFD60A">' + dbgLiftInfo + '</span>' : '');
   }
 
   ['touchstart', 'touchend', 'touchcancel'].forEach(function(evtName) {
