@@ -487,6 +487,17 @@
       if (!c.pressed || c.autoLit) return;  // auto-lit circles have no real finger
       for (var t = 0; t < e.changedTouches.length; t++) {
         if (e.changedTouches[t].identifier === c.fingerIdentifier) {
+          // iOS can reuse identifiers: a new finger landing may get the same id
+          // as a finger that is still physically down. Confirm the touch is truly
+          // gone by checking it is absent from e.touches (still-active touches).
+          var stillActive = false;
+          for (var a = 0; a < e.touches.length; a++) {
+            if (e.touches[a].identifier === c.fingerIdentifier) {
+              stillActive = true;
+              break;
+            }
+          }
+          if (stillActive) return;
           c.pressed          = false;
           c.fingerIdentifier = null;
           onCircleChange('lift');
