@@ -565,6 +565,8 @@
             if (!c.pressed) {
               c.pressed = true;
               c.autoLit = true;
+              // Remove the div now so no stale circle-target divs persist into COUNTDOWN
+              if (c.div) { c.div.remove(); c.div = null; }
             }
           });
           transitionTo(S.COUNTDOWN);
@@ -640,8 +642,8 @@
       // for that orphaned touch to document — not to any child element.
       // Attach directly to document so nothing can intercept these events.
       _liftHandler = function(e) {
-        if (appState !== S.COUNTDOWN) return;
         for (var t = 0; t < e.changedTouches.length; t++) {
+          if (appState !== S.COUNTDOWN) return;
           var id = e.changedTouches[t].identifier;
           for (var i = 0; i < circles.length; i++) {
             var c = circles[i];
