@@ -359,8 +359,9 @@
   let countdownStart = null;
   let revealStart    = null;
   let fadeStart      = null;
-  let holdTimer      = null;
-  let autoLitTimer   = null;
+  let holdTimer           = null;
+  let autoLitTimer        = null;
+  let _canvasLiftHandler  = null;
 
   // ---------------------------------------------------------------------------
   // CANVAS
@@ -385,8 +386,12 @@
     if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
       removeTouchTargets();
       createCircles();
-      createTouchTargets();
-      if (appState === S.COUNTDOWN) transitionTo(S.PLACEMENT);
+      if (appState === S.COUNTDOWN) {
+        // transitionTo will recreate the divs and reset all circle state
+        transitionTo(S.PLACEMENT);
+      } else {
+        createTouchTargets();
+      }
     }
   });
 
@@ -528,7 +533,11 @@
   }
 
   function createTouchTargets() {
-    circles.forEach(function(c, i) { addCircleDiv(c, i < 5); });
+    // Display-only circles (index >= 5) never get DOM elements —
+    // they are rendered on canvas only. Only interactive circles get divs.
+    circles.forEach(function(c, i) {
+      if (i < 5) addCircleDiv(c, true);
+    });
   }
 
   function removeTouchTargets() {
@@ -615,43 +624,77 @@
   // STATE TRANSITIONS
   // ---------------------------------------------------------------------------
   function transitionTo(next) {
+    // Always tear down the canvas lift handler before changing state.
+    // It is only created during COUNTDOWN; unconditional cleanup is safe.
+    if (_canvasLiftHandler) {
+      canvas.style.pointerEvents = 'none';
+      canvas.removeEventListener('touchend',    _canvasLiftHandler);
+      canvas.removeEventListener('touchcancel', _canvasLiftHandler);
+      _canvasLiftHandler = null;
+    }
+
     appState = next;
 
     if (next === S.PLACEMENT) {
       countdownStart = null;
       if (holdTimer)    { clearTimeout(holdTimer);    holdTimer    = null; }
       if (autoLitTimer) { clearTimeout(autoLitTimer); autoLitTimer = null; }
+      // All divs were removed when COUNTDOWN started, so rebuild them.
+      // Every circle is reset to unpressed — no partial state to preserve.
       circles.forEach(function(c) {
-        c.arcProgress   = 0;
-        c.assignedColor = null;
-        c.groupIndex    = -2;
-        if (c.autoLit) {
-          c.pressed          = false;
-          c.autoLit          = false;
-          c.fingerIdentifier = null;
-          // Restore touchable state — but never for display-only circles (index >= 5),
-          // which must stay pointer-events:none for the entire lifetime of the game.
-          if (c.div && !c.displayOnly) c.div.style.pointerEvents = '';
-        }
-        // Real circles: c.pressed and div state preserved — the lifted circle's
-        // onLift handler already restored its div to UNCLAIMED state before
-        // calling onCircleChange, so no action needed here.
+        c.arcProgress      = 0;
+        c.assignedColor    = null;
+        c.groupIndex       = -2;
+        c.pressed          = false;
+        c.autoLit          = false;
+        c.fingerIdentifier = null;
+        c.div              = null;
+      });
+      circles.forEach(function(c, i) {
+        if (i < 5) addCircleDiv(c, true);
       });
     }
 
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
-      // Remove display-only circle divs from the DOM entirely.
-      // pointer-events:none was not reliably blocking iOS touch events on these
-      // elements. Removing them means there is physically nothing for the 6th+
-      // finger to land on — canvas rendering is independent and unaffected.
-      circles.forEach(function(c) {
-        if (c.displayOnly && c.div) {
-          c.div.remove();
-          c.div = null;
+
+      // Remove ALL circle-target divs from the DOM.
+      // pointer-events:none was not reliably blocking iOS touch events.
+      // With no div elements present, the 6th+ fingers physically land on
+      // the canvas (or body), whose identifiers will not match any stored
+      // fingerIdentifier — so spurious lifts are impossible.
+      document.querySelectorAll('.circle-target').forEach(function(d) { d.remove(); });
+      circles.forEach(function(c) { c.div = null; });
+
+      // Canvas becomes the sole touch surface during countdown.
+      // We only watch changedTouches for identifiers matching real (non-auto-lit)
+      // pressed circles. Auto-lit and display-only circles are never claimed
+      // by a real finger, so their identifiers are null and will never match.
+      canvas.style.pointerEvents = 'auto';
+      _canvasLiftHandler = function(e) {
+        if (appState !== S.COUNTDOWN) return;
+        for (var t = 0; t < e.changedTouches.length; t++) {
+          var id = e.changedTouches[t].identifier;
+          for (var i = 0; i < circles.length; i++) {
+            var c = circles[i];
+            if (!c.pressed || c.autoLit) continue;
+            if (c.fingerIdentifier !== id) continue;
+            // Confirm the touch is truly gone from e.touches
+            var stillActive = false;
+            for (var a = 0; a < e.touches.length; a++) {
+              if (e.touches[a].identifier === id) { stillActive = true; break; }
+            }
+            if (stillActive) continue;
+            c.pressed          = false;
+            c.fingerIdentifier = null;
+            onCircleChange('canvas-lift');
+            return;  // one lift at a time is enough to trigger state change
+          }
         }
-      });
+      };
+      canvas.addEventListener('touchend',    _canvasLiftHandler, { passive: true });
+      canvas.addEventListener('touchcancel', _canvasLiftHandler, { passive: true });
     }
 
     if (next === S.REVEAL) {
@@ -679,8 +722,7 @@
   function startGame() {
     document.getElementById('setup-screen').classList.add('hidden');
     createCircles();
-    createTouchTargets();
-    transitionTo(S.PLACEMENT);
+    transitionTo(S.PLACEMENT);  // creates divs for i < 5 internally
   }
 
   var FISH_B64 = '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';
@@ -905,23 +947,36 @@
       case S.FADING:      renderFading(now);        break;
     }
 
-    // Debug: draw X on circles whose div is pointer-events:none (dead to touch)
+    // Debug markers: show touch state per circle regardless of div presence.
+    // Green dot = live interactive div.  Yellow X = claimed / no div.
+    // Orange dot = auto-lit.  Grey dot = display-only (no div).
     if (circles.length) {
       ctx.save();
       ctx.lineWidth = 2.5;
       var XR = 11;
-      circles.forEach(function(c) {
-        if (!c.div) return;
-        var dead = c.div.style.pointerEvents === 'none';
-        ctx.strokeStyle = dead ? '#ff0' : '#0f0';
+      circles.forEach(function(c, i) {
         ctx.beginPath();
-        if (dead) {
-          // X marker for dead div
-          ctx.moveTo(c.x - XR, c.y - XR); ctx.lineTo(c.x + XR, c.y + XR);
-          ctx.moveTo(c.x + XR, c.y - XR); ctx.lineTo(c.x - XR, c.y + XR);
-        } else {
-          // Small circle for live div
+        if (!c.div) {
+          // No div: show state via color
+          if (c.autoLit) {
+            ctx.strokeStyle = '#ff9500';  // orange = auto-lit
+          } else if (c.pressed) {
+            ctx.strokeStyle = '#ff0';     // yellow = real pressed, no div (COUNTDOWN)
+          } else if (i >= 5) {
+            ctx.strokeStyle = '#888';     // grey = display-only
+          } else {
+            ctx.strokeStyle = '#f00';     // red = should have div but doesn't
+          }
           ctx.arc(c.x, c.y, XR * 0.45, 0, Math.PI * 2);
+        } else {
+          var dead = c.div.style.pointerEvents === 'none';
+          ctx.strokeStyle = dead ? '#ff0' : '#0f0';
+          if (dead) {
+            ctx.moveTo(c.x - XR, c.y - XR); ctx.lineTo(c.x + XR, c.y + XR);
+            ctx.moveTo(c.x + XR, c.y - XR); ctx.lineTo(c.x - XR, c.y + XR);
+          } else {
+            ctx.arc(c.x, c.y, XR * 0.45, 0, Math.PI * 2);
+          }
         }
         ctx.stroke();
       });
@@ -1007,17 +1062,15 @@
   var dbgLastTime = '--';
 
   function dbgUpdate() {
-    var deadCount = 0, liveCount = 0;
     var perCircle = circles.map(function(c, i) {
-      if (!c.div) return 'c' + i + ':?';
-      var dead = c.div.style.pointerEvents === 'none';
-      if (dead) deadCount++; else liveCount++;
-      return 'c' + i + ':' + (dead ? 'X' : 'o') + (c.autoLit ? 'A' : c.pressed ? 'P' : '-');
+      var state = c.autoLit ? 'A' : c.pressed ? 'P' : '-';
+      var div   = c.div ? (c.div.style.pointerEvents === 'none' ? 'X' : 'o') : (appState === S.COUNTDOWN ? 'C' : '?');
+      return 'c' + i + ':' + div + state;
     }).join(' ');
     dbgEl.innerHTML =
       'state: '   + appState + '<br>' +
       'real: '    + realPressedCount() + '<br>' +
-      'pe: '      + deadCount + 'X ' + liveCount + 'o<br>' +
+      'canvas: '  + (canvas.style.pointerEvents || 'none') + '<br>' +
       (circles.length ? perCircle + '<br>' : '') +
       'trigger: ' + dbgLastTrigger + '<br>' +
       'evt: '     + dbgLastEvt + '<br>' +
