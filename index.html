@@ -51,7 +51,7 @@
       position: fixed;
       top: 0; left: 0;
       touch-action: none;
-      pointer-events: auto; /* canvas handles all touch input */
+      pointer-events: none; /* purely visual — GO button handles all input */
     }
 
 
@@ -255,12 +255,46 @@
       letter-spacing: -0.2px;
     }
     #setup-start:active { background: rgba(255,255,255,0.82); }
+
+    /* GO button */
+    @keyframes goReadyPulse {
+      0%   { transform: translate(-50%, -50%) scale(1);    opacity: 1;   }
+      50%  { transform: translate(-50%, -50%) scale(0.88); opacity: 0.5; }
+      100% { transform: translate(-50%, -50%) scale(1);    opacity: 1;   }
+    }
+
+    #go-btn {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 20;
+      width: 130px;
+      height: 130px;
+      border-radius: 65px;
+      background: #fff;
+      color: #000;
+      font-size: 34px;
+      font-weight: 800;
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-user-select: none; user-select: none;
+      letter-spacing: -0.5px;
+    }
+    #go-btn.hidden  { display: none; }
+    #go-btn.pulsing { animation: goReadyPulse 0.55s ease-in-out infinite; }
   </style>
 </head>
 <body>
   <canvas id="app"></canvas>
 
   <div id="dbg" style="position:fixed;top:0;left:0;z-index:999;background:rgba(0,0,0,0.82);color:#fff;font-size:11px;font-family:monospace;padding:6px 8px;pointer-events:none;line-height:1.6;"></div>
+
+  <div id="go-btn" class="hidden">GO</div>
 
   <div id="setup-screen" role="dialog" aria-modal="true" aria-label="Game setup">
     <div id="setup-inner">
@@ -309,15 +343,14 @@
   const RING_GAP     = 8;
   const RING_W       = 8;
   const RING_R       = CIRCLE_R + RING_GAP + RING_W / 2;
-  const HIT_R        = RING_R + 14;   // hit-test radius for position-based touch detection
 
+  const GET_READY_MS = 1500;
   const COUNTDOWN_MS = 3000;
   const REVEAL_MS    = 440;
   const FADE_MS      = 300;
   const HOLD_MS      = 2500;
 
   const GREY_FILL    = '#4A4A4F';
-  const GREY_PRESSED = '#8E8E93';
   const GREY_OUT     = '#2A2A2E';
 
   const COLORS = [
@@ -327,6 +360,7 @@
 
   const S = Object.freeze({
     PLACEMENT:   'PLACEMENT',
+    GET_READY:   'GET_READY',
     COUNTDOWN:   'COUNTDOWN',
     REVEAL:      'REVEAL',
     POST_REVEAL: 'POST_REVEAL',
@@ -341,18 +375,17 @@
   const settings = { mode: 'single', groupSize: 2, numPlayers: 6 };
 
   /**
-   * @type {Array<{id:number, x:number, y:number, pressed:boolean,
-   *   autoLit:boolean, arcProgress:number,
-   *   assignedColor:string|null, groupIndex:number}>}
+   * @type {Array<{id:number, x:number, y:number,
+   *   arcProgress:number, assignedColor:string|null, groupIndex:number}>}
    */
   let circles      = [];
   let frozenCircles = [];
 
+  let getReadyStart  = null;
   let countdownStart = null;
   let revealStart    = null;
   let fadeStart      = null;
   let holdTimer      = null;
-  let autoLitTimer   = null;
 
   // ---------------------------------------------------------------------------
   // CANVAS
@@ -374,7 +407,7 @@
   window.addEventListener('resize', () => {
     resizeCanvas();
     if (circles.length === 0) return;
-    if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
+    if (appState === S.PLACEMENT || appState === S.GET_READY || appState === S.COUNTDOWN) {
       createCircles();
       transitionTo(S.PLACEMENT);
     }
@@ -433,8 +466,6 @@
         id:            i,
         x:             Math.round(cx + rx * Math.cos(angle)),
         y:             Math.round(cy + ry * Math.sin(angle)),
-        pressed:       false,
-        autoLit:       false,
         arcProgress:   0,
         assignedColor: null,
         groupIndex:    -2,
@@ -443,152 +474,17 @@
   }
 
   // ---------------------------------------------------------------------------
-  // TOUCH HANDLING — position-based, no identifier tracking
-  //
-  // The canvas is the sole touch surface. On touchstart, we check each new
-  // touch's position against all unclaimed circle positions to claim them.
-  // On touchend/touchcancel, we check which circles no longer have any active
-  // touch covering them and unclaim those.
-  //
-  // iOS reusing touch identifiers cannot cause false lifts because we never
-  // look at identifiers — only spatial overlap between touch point and circle.
-  // The 6th–8th fingers may not even generate events (iOS 5-touch limit), and
-  // even if they do, their positions won't overlap any circle, so they're
-  // silently ignored.
+  // GO BUTTON
   // ---------------------------------------------------------------------------
-  function touchOnCircle(touch, c) {
-    var dx = touch.clientX - c.x;
-    var dy = touch.clientY - c.y;
-    return dx * dx + dy * dy <= HIT_R * HIT_R;
-  }
+  var goBtn = document.getElementById('go-btn');
 
-  canvas.addEventListener('touchstart', function(e) {
-    e.preventDefault();
+  goBtn.addEventListener('click', function() {
     if (appState !== S.PLACEMENT) return;
-    for (var t = 0; t < e.changedTouches.length; t++) {
-      var touch = e.changedTouches[t];
-      for (var i = 0; i < circles.length; i++) {
-        var c = circles[i];
-        if (c.pressed) continue;           // already claimed
-        if (i >= 5)    continue;           // display-only — never interactive
-        if (touchOnCircle(touch, c)) {
-          c.pressed = true;
-          c.fingerIdentifier = touch.identifier;
-          onCircleChange('touchstart');
-          break;                           // one touch claims one circle
-        }
-      }
-    }
-  }, { passive: false });
-
-  function handleLift(e) {
-    // --- debug: snapshot touch lists at time of lift ---
-    var activeIds  = Array.prototype.map.call(e.touches,        function(t) { return t.identifier; });
-    var changedIds = Array.prototype.map.call(e.changedTouches, function(t) { return t.identifier; });
-    var circleInfo = circles.map(function(c, i) {
-      if (!c.pressed || c.autoLit) return null;
-      return 'c' + i + '(id=' + c.fingerIdentifier + ')';
-    }).filter(Boolean);
-    dbgLiftInfo =
-      'LIFT [' + appState + ']' + '<br>' +
-      'circles: ' + (circleInfo.length ? circleInfo.join(' ') : 'none') + '<br>' +
-      'active:  [' + activeIds.join(',') + ']' + '<br>' +
-      'changed: [' + changedIds.join(',') + ']';
-    // --- end debug snapshot ---
-
-    if (appState === S.PLACEMENT) {
-      // Unclaim any real circle whose position no longer has an active touch.
-      var changed = false;
-      for (var i = 0; i < circles.length; i++) {
-        var c = circles[i];
-        if (!c.pressed || c.autoLit) continue;
-        var covered = false;
-        for (var t = 0; t < e.touches.length; t++) {
-          if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
-        }
-        if (!covered) {
-          dbgLiftInfo += '<br>UNCOVERED c' + i + ' id=' + c.fingerIdentifier + ' not in active';
-          c.pressed = false; changed = true;
-        }
-      }
-      if (changed) onCircleChange('lift');
-
-    } else if (appState === S.COUNTDOWN) {
-      // If any real (non-auto-lit) circle has no active touch covering it,
-      // a real player lifted — abort countdown and return to PLACEMENT.
-      for (var i = 0; i < circles.length; i++) {
-        var c = circles[i];
-        if (!c.pressed || c.autoLit) continue;
-        var covered = false;
-        for (var t = 0; t < e.touches.length; t++) {
-          if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
-        }
-        if (!covered) {
-          dbgLiftInfo += '<br>UNCOVERED c' + i + ' id=' + c.fingerIdentifier + ' not in active → ABORT';
-          transitionTo(S.PLACEMENT);
-          // Re-claim circles that still have an active touch so players
-          // don't have to lift and re-press their fingers.
-          for (var j = 0; j < 5 && j < circles.length; j++) {
-            for (var t2 = 0; t2 < e.touches.length; t2++) {
-              if (touchOnCircle(e.touches[t2], circles[j])) {
-                circles[j].pressed = true;
-                circles[j].fingerIdentifier = e.touches[t2].identifier;
-                break;
-              }
-            }
-          }
-          onCircleChange('countdown-abort');
-          return;
-        }
-      }
-    }
-  }
-
-  canvas.addEventListener('touchend', handleLift, { passive: true });
-  // touchcancel is intentionally NOT wired to handleLift.
-  // When a 6th finger lands, iOS fires touchcancel on all existing touches
-  // with e.touches empty — wiring this to handleLift would unclaim all circles
-  // or abort countdown. Real players lifting always fire touchend, not touchcancel.
-
-  // ---------------------------------------------------------------------------
-  // PRESS LOGIC
-  // ---------------------------------------------------------------------------
-  // Only counts circles physically detected by iOS (not auto-lit stand-ins)
-  function realPressedCount() {
-    var n = 0;
-    for (var i = 0; i < circles.length; i++) if (circles[i].pressed && !circles[i].autoLit) n++;
-    return n;
-  }
-
-  var dbgLastTrigger = '--';
-  function onCircleChange(trigger) {
-    dbgLastTrigger = trigger + ' [' + appState + ' r=' + realPressedCount() + ']';
-    var real = realPressedCount();
-    if (appState === S.PLACEMENT) {
-      if (real === 5 && !autoLitTimer) {
-        // 5th finger detected. Delay 175ms before auto-lighting undetected circles
-        // and starting countdown — makes it look like the last few pressed just after.
-        autoLitTimer = setTimeout(function() {
-          autoLitTimer = null;
-          if (realPressedCount() < 5) return;  // a finger lifted during the delay
-          circles.forEach(function(c) {
-            if (!c.pressed) {
-              c.pressed = true;
-              c.autoLit = true;
-            }
-          });
-          transitionTo(S.COUNTDOWN);
-        }, 450);
-      } else if (real < 5 && autoLitTimer) {
-        // A finger lifted before the delay expired — cancel the pending countdown
-        clearTimeout(autoLitTimer);
-        autoLitTimer = null;
-      }
-    } else if (appState === S.COUNTDOWN) {
-      // A real finger lifted — reset. Auto-lit circles are cleared in transitionTo.
-      if (real < 5) transitionTo(S.PLACEMENT);
-    }
-  }
+    goBtn.textContent  = 'Get ready...';
+    goBtn.style.fontSize = '17px';
+    goBtn.classList.add('pulsing');
+    transitionTo(S.GET_READY);
+  });
 
   // ---------------------------------------------------------------------------
   // ASSIGNMENT
@@ -624,20 +520,28 @@
     appState = next;
 
     if (next === S.PLACEMENT) {
+      getReadyStart  = null;
       countdownStart = null;
-      if (holdTimer)    { clearTimeout(holdTimer);    holdTimer    = null; }
-      if (autoLitTimer) { clearTimeout(autoLitTimer); autoLitTimer = null; }
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
       circles.forEach(function(c) {
-        c.arcProgress  = 0;
+        c.arcProgress   = 0;
         c.assignedColor = null;
-        c.groupIndex   = -2;
-        c.pressed      = false;
-        c.autoLit      = false;
+        c.groupIndex    = -2;
       });
+      goBtn.textContent    = 'GO';
+      goBtn.style.fontSize = '';
+      goBtn.classList.remove('pulsing');
+      goBtn.classList.remove('hidden');
+    }
+
+    if (next === S.GET_READY) {
+      getReadyStart = null;  // set on first tick
     }
 
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
+      goBtn.classList.add('hidden');
+      goBtn.classList.remove('pulsing');
       circles.forEach(function(c) { c.arcProgress = 0; });
     }
 
@@ -761,12 +665,20 @@
   // RENDER: PLACEMENT
   // ---------------------------------------------------------------------------
   function renderPlacement() {
-    var W = window.innerWidth, H = window.innerHeight;
-
     circles.forEach(function(c) {
-      drawCircle(c.x, c.y, c.pressed ? GREY_PRESSED : GREY_FILL, 1, 1, 0, false);
+      drawCircle(c.x, c.y, GREY_FILL, 1, 1, 0, false);
     });
+  }
 
+  // ---------------------------------------------------------------------------
+  // RENDER: GET_READY
+  // ---------------------------------------------------------------------------
+  function renderGetReady(now) {
+    if (!getReadyStart) getReadyStart = now;
+    circles.forEach(function(c) {
+      drawCircle(c.x, c.y, GREY_FILL, 1, 1, 0, false);
+    });
+    if ((now - getReadyStart) >= GET_READY_MS) transitionTo(S.COUNTDOWN);
   }
 
   // ---------------------------------------------------------------------------
@@ -881,25 +793,11 @@
 
     switch (appState) {
       case S.PLACEMENT:   renderPlacement();       break;
+      case S.GET_READY:   renderGetReady(now);     break;
       case S.COUNTDOWN:   renderCountdown(now);    break;
-      case S.REVEAL:      renderReveal(now);        break;
-      case S.POST_REVEAL: renderPostReveal();       break;
-      case S.FADING:      renderFading(now);        break;
-    }
-
-    // Debug markers: dot per circle, color = touch state.
-    // Green = real pressed.  Orange = auto-lit.  Grey = unpressed.
-    if (circles.length) {
-      ctx.save();
-      ctx.lineWidth = 2.5;
-      var DR = 7;
-      circles.forEach(function(c) {
-        ctx.strokeStyle = c.autoLit ? '#ff9500' : c.pressed ? '#0f0' : '#555';
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, DR, 0, Math.PI * 2);
-        ctx.stroke();
-      });
-      ctx.restore();
+      case S.REVEAL:      renderReveal(now);       break;
+      case S.POST_REVEAL: renderPostReveal();      break;
+      case S.FADING:      renderFading(now);       break;
     }
 
     dbgUpdate();
@@ -979,20 +877,12 @@
   var dbgEl       = document.getElementById('dbg');
   var dbgLastEvt  = 'none';
   var dbgLastTime = '--';
-  var dbgLiftInfo = '';
 
   function dbgUpdate() {
-    var perCircle = circles.map(function(c, i) {
-      return 'c' + i + ':' + (c.autoLit ? 'A' : c.pressed ? 'P' : '-');
-    }).join(' ');
     dbgEl.innerHTML =
-      'state: '   + appState + '<br>' +
-      'real: '    + realPressedCount() + '<br>' +
-      (circles.length ? perCircle + '<br>' : '') +
-      'trigger: ' + dbgLastTrigger + '<br>' +
-      'evt: '     + dbgLastEvt + '<br>' +
-      'time: '    + dbgLastTime +
-      (dbgLiftInfo ? '<br><span style="color:#FFD60A">' + dbgLiftInfo + '</span>' : '');
+      'state: ' + appState + '<br>' +
+      'evt: '   + dbgLastEvt + '<br>' +
+      'time: '  + dbgLastTime;
   }
 
   ['touchstart', 'touchend', 'touchcancel'].forEach(function(evtName) {
