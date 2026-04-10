@@ -642,11 +642,16 @@
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
-      // At this point every circle div is either:
-      //   real claimed    → pointer-events:none, only touchend/touchcancel attached
-      //   auto-lit (0-4)  → pointer-events:none, touchstart still attached but unreachable
-      //   display-only    → pointer-events:none since creation, no touchstart ever attached
-      // Extra fingers land on the canvas (pointer-events:none) or body — no handlers fire.
+      // Remove display-only circle divs from the DOM entirely.
+      // pointer-events:none was not reliably blocking iOS touch events on these
+      // elements. Removing them means there is physically nothing for the 6th+
+      // finger to land on — canvas rendering is independent and unaffected.
+      circles.forEach(function(c) {
+        if (c.displayOnly && c.div) {
+          c.div.remove();
+          c.div = null;
+        }
+      });
     }
 
     if (next === S.REVEAL) {
