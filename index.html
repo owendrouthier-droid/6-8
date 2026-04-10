@@ -518,13 +518,24 @@
       }
     }
 
-    div.addEventListener('touchstart', onTouchStart, { passive: false });
+    if (interactive !== false) {
+      div.addEventListener('touchstart', onTouchStart, { passive: false });
+    }
     document.body.appendChild(div);
     c.div = div;
   }
 
   function createTouchTargets() {
-    circles.forEach(function(c) { addCircleDiv(c); });
+    circles.forEach(function(c, i) {
+      var interactive = (i < 5);
+      addCircleDiv(c, interactive);
+      if (!interactive) {
+        // Circles beyond index 4 are purely visual — no touchstart listener,
+        // and pointer-events:none so no touch event can ever reach them.
+        c.displayOnly           = true;
+        c.div.style.pointerEvents = 'none';
+      }
+    });
   }
 
   function removeTouchTargets() {
@@ -625,8 +636,9 @@
           c.pressed          = false;
           c.autoLit          = false;
           c.fingerIdentifier = null;
-          // Restore div to UNCLAIMED state — pointer-events back, touchstart re-enabled
-          if (c.div) c.div.style.pointerEvents = '';
+          // Restore touchable state — but never for display-only circles (index >= 5),
+          // which must stay pointer-events:none for the entire lifetime of the game.
+          if (c.div && !c.displayOnly) c.div.style.pointerEvents = '';
         }
         // Real circles: c.pressed and div state preserved — the lifted circle's
         // onLift handler already restored its div to UNCLAIMED state before
@@ -638,8 +650,9 @@
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
       // At this point every circle div is either:
-      //   real claimed  → pointer-events:none, only touchend/touchcancel attached
-      //   auto-lit      → pointer-events:none, touchstart still attached but unreachable
+      //   real claimed    → pointer-events:none, only touchend/touchcancel attached
+      //   auto-lit (0-4)  → pointer-events:none, touchstart still attached but unreachable
+      //   display-only    → pointer-events:none since creation, no touchstart ever attached
       // Extra fingers land on the canvas (pointer-events:none) or body — no handlers fire.
     }
 
