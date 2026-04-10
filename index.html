@@ -544,8 +544,11 @@
     }
   }
 
-  canvas.addEventListener('touchend',    handleLift, { passive: true });
-  canvas.addEventListener('touchcancel', handleLift, { passive: true });
+  canvas.addEventListener('touchend', handleLift, { passive: true });
+  // touchcancel is intentionally NOT wired to handleLift.
+  // When a 6th finger lands, iOS fires touchcancel on all existing touches
+  // with e.touches empty — wiring this to handleLift would unclaim all circles
+  // or abort countdown. Real players lifting always fire touchend, not touchcancel.
 
   // ---------------------------------------------------------------------------
   // PRESS LOGIC
