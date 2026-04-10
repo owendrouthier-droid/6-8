@@ -63,16 +63,8 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    /* Full-screen overlay for unclaiming claimed circles */
-    #unclaim-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 9;
-      touch-action: none;
-    }
 
-    /* Catches touchend events during countdown so lifted fingers are detected
-       even though their original circle-target divs have been removed */
+
     /* Play Again button */
     @keyframes fishFadeIn {
       from { opacity: 0; transform: scale(0.82); }
@@ -369,7 +361,6 @@
   let fadeStart      = null;
   let holdTimer      = null;
   let autoLitTimer   = null;
-  let _liftHandler   = null;  // document-level touchend/cancel handler during COUNTDOWN
 
   // ---------------------------------------------------------------------------
   // CANVAS
@@ -465,15 +456,13 @@
 
   // ---------------------------------------------------------------------------
   // TOUCH TARGETS
-  // Claim mechanic: each unclaimed circle has a circle-target div.
-  //   touchstart → claim the circle, IMMEDIATELY remove the div.
-  //   Removing the div frees iOS's touch slot so it never accumulates 5.
+  // Each circle gets a permanent div that stays in the DOM for the lifetime
+  // of the game. iOS always fires touchend on the same element that received
+  // touchstart, so keeping the div present guarantees lift detection works.
   //
-  // Unclaim mechanic: a full-screen #unclaim-overlay (z-index 9, behind
-  //   circle-targets at z-index 10) catches taps in areas where no
-  //   circle-target div exists (i.e. already-claimed circles).
-  //   A tap within hit-radius of a claimed circle unclaims it and
-  //   recreates its circle-target div.
+  // Claim:   touchstart during PLACEMENT on an unclaimed circle.
+  // Unclaim: touchend/touchcancel whose identifier matches the circle's
+  //          stored fingerIdentifier — works in PLACEMENT and COUNTDOWN.
   // ---------------------------------------------------------------------------
   function addCircleDiv(c) {
     const pad = RING_R + 14;
@@ -486,15 +475,26 @@
 
     div.addEventListener('touchstart', function(e) {
       e.preventDefault();
-      if (appState !== S.PLACEMENT && appState !== S.COUNTDOWN) return;
-      if (c.pressed) return;
+      if (appState !== S.PLACEMENT) return;  // new claims only during PLACEMENT
+      if (c.pressed) return;                 // already claimed
       c.pressed          = true;
       c.fingerIdentifier = e.changedTouches[0].identifier;
-      // Remove immediately so iOS releases this touch slot
-      div.remove();
-      c.div = null;
       onCircleChange();
     }, { passive: false });
+
+    function liftHandler(e) {
+      if (!c.pressed || c.autoLit) return;  // auto-lit circles have no real finger
+      for (var t = 0; t < e.changedTouches.length; t++) {
+        if (e.changedTouches[t].identifier === c.fingerIdentifier) {
+          c.pressed          = false;
+          c.fingerIdentifier = null;
+          onCircleChange();
+          return;
+        }
+      }
+    }
+    div.addEventListener('touchend',    liftHandler, { passive: true });
+    div.addEventListener('touchcancel', liftHandler, { passive: true });
 
     document.body.appendChild(div);
     c.div = div;
@@ -502,43 +502,11 @@
 
   function createTouchTargets() {
     circles.forEach(function(c) { addCircleDiv(c); });
-
-    // Unclaim overlay: catches taps on claimed circles (which have no div)
-    var overlay = document.createElement('div');
-    overlay.id = 'unclaim-overlay';
-    overlay.addEventListener('touchstart', function(e) {
-      e.preventDefault();
-      if (appState !== S.PLACEMENT) return;  // unclaiming only allowed before countdown starts
-      for (var t = 0; t < e.changedTouches.length; t++) {
-        var touch = e.changedTouches[t];
-        var tx = touch.clientX, ty = touch.clientY;
-        // Find nearest claimed circle within tap radius
-        var best = null, bestDist = Infinity;
-        circles.forEach(function(c) {
-          if (!c.pressed || c.autoLit) return;  // only real-pressed circles are unclaim-able
-          var dx = c.x - tx, dy = c.y - ty;
-          var dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < RING_R + 14 && dist < bestDist) {
-            bestDist = dist;
-            best = c;
-          }
-        });
-        if (best) {
-          best.pressed          = false;
-          best.fingerIdentifier = null;
-          addCircleDiv(best);
-          onCircleChange();
-        }
-      }
-    }, { passive: false });
-    document.body.appendChild(overlay);
   }
 
   function removeTouchTargets() {
     document.querySelectorAll('.circle-target').forEach(function(d) { d.remove(); });
     circles.forEach(function(c) { c.div = null; c.autoLit = false; });
-    var overlay = document.getElementById('unclaim-overlay');
-    if (overlay) overlay.remove();
   }
 
   // ---------------------------------------------------------------------------
@@ -570,9 +538,7 @@
             if (!c.pressed) {
               c.pressed = true;
               c.autoLit = true;
-              // Remove the div now so no stale circle-target divs persist into COUNTDOWN
-              if (c.div) { console.log('auto-lit div removed for circle', c.id); c.div.remove(); c.div = null; }
-              else { console.log('auto-lit circle', c.id, 'had no div to remove'); }
+              // div stays in DOM — liftHandler ignores auto-lit circles
             }
           });
           transitionTo(S.COUNTDOWN);
@@ -629,58 +595,22 @@
         c.arcProgress   = 0;
         c.assignedColor = null;
         c.groupIndex    = -2;
-        // Auto-lit circles were assumed present but not tracked — reset them to grey
-        // and recreate their touch targets so they can be claimed for real next time.
+        // Auto-lit circles had no real finger — reset so they can be claimed fresh.
+        // Divs are permanent; no need to recreate them.
         if (c.autoLit) {
-          c.pressed = false;
-          c.autoLit = false;
-          addCircleDiv(c);
+          c.pressed          = false;
+          c.autoLit          = false;
+          c.fingerIdentifier = null;
         }
-        // Real c.pressed preserved so only the lifted circle goes grey
+        // Real circles: c.pressed preserved (lifted circle already set false by its div's liftHandler)
       });
     }
 
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
-
-      // Remove the unclaim overlay — it has touch-action:none and will consume
-      // touchend events at circle positions if left in the DOM during countdown.
-      var unclaimOvl = document.getElementById('unclaim-overlay');
-      if (unclaimOvl) unclaimOvl.remove();
-
-      // Count any stale circle-target divs and surface in debug display.
-      var staleDivCount = document.querySelectorAll('.circle-target').length;
-      console.log('COUNTDOWN start — stale .circle-target divs in DOM:', staleDivCount);
-      dbgEl.dataset.divs = staleDivCount;
-
-      // Use capture phase so this fires before any element handler can
-      // consume the event — iOS was not delivering bubble-phase touchend
-      // to document when elements with touch-action:none were present.
-      _liftHandler = function(e) {
-        for (var t = 0; t < e.changedTouches.length; t++) {
-          if (appState !== S.COUNTDOWN) return;
-          var id = e.changedTouches[t].identifier;
-          for (var i = 0; i < circles.length; i++) {
-            var c = circles[i];
-            if (c.pressed && !c.autoLit && c.fingerIdentifier === id) {
-              c.pressed          = false;
-              c.fingerIdentifier = null;
-              onCircleChange();
-              break;
-            }
-          }
-        }
-      };
-      document.addEventListener('touchend',    _liftHandler, true);
-      document.addEventListener('touchcancel', _liftHandler, true);
-    }
-
-    // Remove document-level lift listeners when leaving COUNTDOWN
-    if (next !== S.COUNTDOWN && _liftHandler) {
-      document.removeEventListener('touchend',    _liftHandler, true);
-      document.removeEventListener('touchcancel', _liftHandler, true);
-      _liftHandler = null;
+      // Lift detection is handled by each circle-target div's own touchend/touchcancel
+      // handlers — no document-level listener needed.
     }
 
     if (next === S.REVEAL) {
