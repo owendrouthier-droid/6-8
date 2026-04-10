@@ -473,6 +473,7 @@
         if (i >= 5)    continue;           // display-only — never interactive
         if (touchOnCircle(touch, c)) {
           c.pressed = true;
+          c.fingerIdentifier = touch.identifier;
           onCircleChange('touchstart');
           break;                           // one touch claims one circle
         }
@@ -489,7 +490,7 @@
         if (!c.pressed || c.autoLit) continue;
         var covered = false;
         for (var t = 0; t < e.touches.length; t++) {
-          if (touchOnCircle(e.touches[t], c)) { covered = true; break; }
+          if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
         }
         if (!covered) { c.pressed = false; changed = true; }
       }
@@ -503,7 +504,7 @@
         if (!c.pressed || c.autoLit) continue;
         var covered = false;
         for (var t = 0; t < e.touches.length; t++) {
-          if (touchOnCircle(e.touches[t], c)) { covered = true; break; }
+          if (e.touches[t].identifier === c.fingerIdentifier) { covered = true; break; }
         }
         if (!covered) {
           transitionTo(S.PLACEMENT);
@@ -513,6 +514,7 @@
             for (var t2 = 0; t2 < e.touches.length; t2++) {
               if (touchOnCircle(e.touches[t2], circles[j])) {
                 circles[j].pressed = true;
+                circles[j].fingerIdentifier = e.touches[t2].identifier;
                 break;
               }
             }
