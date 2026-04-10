@@ -473,69 +473,62 @@
     div.style.width  = (pad * 2)   + 'px';
     div.style.height = (pad * 2)   + 'px';
 
-    // Div lives in two states:
-    //   UNCLAIMED — touchstart listener active, pointer-events auto
-    //   CLAIMED   — touchend/touchcancel listeners active, pointer-events none
-    //               (pointer-events:none prevents the 6th+ finger from landing here)
-
-    function onTouchStart(e) {
-      e.preventDefault();
-      if (appState !== S.PLACEMENT) return;
-      var newId = e.changedTouches[0].identifier;
-      // Reject if identifier already tracked (iOS reuses ids after a touch ends)
-      for (var i = 0; i < circles.length; i++) {
-        if (circles[i].fingerIdentifier === newId) return;
-      }
-      c.pressed          = true;
-      c.fingerIdentifier = newId;
-      // Transition div to CLAIMED state
-      div.removeEventListener('touchstart', onTouchStart);
-      div.addEventListener('touchend',    onLift, { passive: true });
-      div.addEventListener('touchcancel', onLift, { passive: true });
-      div.style.pointerEvents = 'none';  // 6th+ fingers land on dead elements
-      onCircleChange('touchstart');
-    }
-
-    function onLift(e) {
-      if (!c.pressed) return;
-      for (var t = 0; t < e.changedTouches.length; t++) {
-        if (e.changedTouches[t].identifier !== c.fingerIdentifier) continue;
-        // Confirm the finger is truly gone (not iOS reuse of the same id)
-        var stillActive = false;
-        for (var a = 0; a < e.touches.length; a++) {
-          if (e.touches[a].identifier === c.fingerIdentifier) { stillActive = true; break; }
-        }
-        if (stillActive) return;
-        // Genuine lift — restore div to UNCLAIMED state
-        c.pressed          = false;
-        c.fingerIdentifier = null;
-        div.removeEventListener('touchend',    onLift);
-        div.removeEventListener('touchcancel', onLift);
-        div.addEventListener('touchstart', onTouchStart, { passive: false });
-        div.style.pointerEvents = '';
-        onCircleChange('lift');
-        return;
-      }
-    }
-
     if (interactive !== false) {
+      // INTERACTIVE circle (index 0-4): div state-machine between UNCLAIMED and CLAIMED.
+      //   UNCLAIMED — touchstart active, pointer-events auto
+      //   CLAIMED   — touchend/touchcancel active, pointer-events none
+
+      function onTouchStart(e) {
+        e.preventDefault();
+        if (appState !== S.PLACEMENT) return;
+        var newId = e.changedTouches[0].identifier;
+        // Reject if identifier already tracked (iOS reuses ids after a touch ends)
+        for (var i = 0; i < circles.length; i++) {
+          if (circles[i].fingerIdentifier === newId) return;
+        }
+        c.pressed          = true;
+        c.fingerIdentifier = newId;
+        div.removeEventListener('touchstart', onTouchStart);
+        div.addEventListener('touchend',    onLift, { passive: true });
+        div.addEventListener('touchcancel', onLift, { passive: true });
+        div.style.pointerEvents = 'none';
+        onCircleChange('touchstart');
+      }
+
+      function onLift(e) {
+        if (!c.pressed) return;
+        for (var t = 0; t < e.changedTouches.length; t++) {
+          if (e.changedTouches[t].identifier !== c.fingerIdentifier) continue;
+          var stillActive = false;
+          for (var a = 0; a < e.touches.length; a++) {
+            if (e.touches[a].identifier === c.fingerIdentifier) { stillActive = true; break; }
+          }
+          if (stillActive) return;
+          c.pressed          = false;
+          c.fingerIdentifier = null;
+          div.removeEventListener('touchend',    onLift);
+          div.removeEventListener('touchcancel', onLift);
+          div.addEventListener('touchstart', onTouchStart, { passive: false });
+          div.style.pointerEvents = '';
+          onCircleChange('lift');
+          return;
+        }
+      }
+
       div.addEventListener('touchstart', onTouchStart, { passive: false });
+
+    } else {
+      // DISPLAY-ONLY circle (index 5-7): purely visual, no listeners whatsoever.
+      c.displayOnly           = true;
+      div.style.pointerEvents = 'none';
     }
+
     document.body.appendChild(div);
     c.div = div;
   }
 
   function createTouchTargets() {
-    circles.forEach(function(c, i) {
-      var interactive = (i < 5);
-      addCircleDiv(c, interactive);
-      if (!interactive) {
-        // Circles beyond index 4 are purely visual — no touchstart listener,
-        // and pointer-events:none so no touch event can ever reach them.
-        c.displayOnly           = true;
-        c.div.style.pointerEvents = 'none';
-      }
-    });
+    circles.forEach(function(c, i) { addCircleDiv(c, i < 5); });
   }
 
   function removeTouchTargets() {
