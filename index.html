@@ -894,6 +894,29 @@
       case S.FADING:      renderFading(now);        break;
     }
 
+    // Debug: draw X on circles whose div is pointer-events:none (dead to touch)
+    if (circles.length) {
+      ctx.save();
+      ctx.lineWidth = 2.5;
+      var XR = 11;
+      circles.forEach(function(c) {
+        if (!c.div) return;
+        var dead = c.div.style.pointerEvents === 'none';
+        ctx.strokeStyle = dead ? '#ff0' : '#0f0';
+        ctx.beginPath();
+        if (dead) {
+          // X marker for dead div
+          ctx.moveTo(c.x - XR, c.y - XR); ctx.lineTo(c.x + XR, c.y + XR);
+          ctx.moveTo(c.x + XR, c.y - XR); ctx.lineTo(c.x - XR, c.y + XR);
+        } else {
+          // Small circle for live div
+          ctx.arc(c.x, c.y, XR * 0.45, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
     dbgUpdate();
     requestAnimationFrame(tick);
   }
@@ -973,10 +996,18 @@
   var dbgLastTime = '--';
 
   function dbgUpdate() {
+    var deadCount = 0, liveCount = 0;
+    var perCircle = circles.map(function(c, i) {
+      if (!c.div) return 'c' + i + ':?';
+      var dead = c.div.style.pointerEvents === 'none';
+      if (dead) deadCount++; else liveCount++;
+      return 'c' + i + ':' + (dead ? 'X' : 'o') + (c.autoLit ? 'A' : c.pressed ? 'P' : '-');
+    }).join(' ');
     dbgEl.innerHTML =
       'state: '   + appState + '<br>' +
       'real: '    + realPressedCount() + '<br>' +
-      'divs: '    + document.querySelectorAll('.circle-target').length + '<br>' +
+      'pe: '      + deadCount + 'X ' + liveCount + 'o<br>' +
+      (circles.length ? perCircle + '<br>' : '') +
       'trigger: ' + dbgLastTrigger + '<br>' +
       'evt: '     + dbgLastEvt + '<br>' +
       'time: '    + dbgLastTime;
