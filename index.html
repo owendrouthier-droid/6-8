@@ -464,7 +464,7 @@
   // Unclaim: touchend/touchcancel whose identifier matches the circle's
   //          stored fingerIdentifier — works in PLACEMENT and COUNTDOWN.
   // ---------------------------------------------------------------------------
-  function addCircleDiv(c) {
+  function addCircleDiv(c, interactive) {
     const pad = RING_R + 14;
     const div = document.createElement('div');
     div.className    = 'circle-target';
