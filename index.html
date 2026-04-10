@@ -480,7 +480,7 @@
       if (c.pressed) return;                 // already claimed by a real finger
       c.pressed          = true;
       c.fingerIdentifier = e.changedTouches[0].identifier;
-      onCircleChange();
+      onCircleChange('touchstart');
     }, { passive: false });
 
     function liftHandler(e) {
@@ -489,7 +489,7 @@
         if (e.changedTouches[t].identifier === c.fingerIdentifier) {
           c.pressed          = false;
           c.fingerIdentifier = null;
-          onCircleChange();
+          onCircleChange('lift');
           return;
         }
       }
@@ -526,7 +526,9 @@
     return n;
   }
 
-  function onCircleChange() {
+  var dbgLastTrigger = '--';
+  function onCircleChange(trigger) {
+    dbgLastTrigger = trigger + ' [' + appState + ' r=' + realPressedCount() + ']';
     var real = realPressedCount();
     if (appState === S.PLACEMENT) {
       if (real === 5 && !autoLitTimer) {
@@ -945,11 +947,12 @@
 
   function dbgUpdate() {
     dbgEl.innerHTML =
-      'state: '  + appState + '<br>' +
-      'real: '   + realPressedCount() + '<br>' +
-      'divs: '   + document.querySelectorAll('.circle-target').length + '<br>' +
-      'evt: '    + dbgLastEvt + '<br>' +
-      'time: '   + dbgLastTime;
+      'state: '   + appState + '<br>' +
+      'real: '    + realPressedCount() + '<br>' +
+      'divs: '    + document.querySelectorAll('.circle-target').length + '<br>' +
+      'trigger: ' + dbgLastTrigger + '<br>' +
+      'evt: '     + dbgLastEvt + '<br>' +
+      'time: '    + dbgLastTime;
   }
 
   ['touchstart', 'touchend', 'touchcancel'].forEach(function(evtName) {
