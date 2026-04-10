@@ -643,9 +643,9 @@
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
 
-      // When a circle-target div is removed from the DOM, iOS routes touchend
-      // for that orphaned touch to document — not to any child element.
-      // Attach directly to document so nothing can intercept these events.
+      // Use capture phase so this fires before any element handler can
+      // consume the event — iOS was not delivering bubble-phase touchend
+      // to document when elements with touch-action:none were present.
       _liftHandler = function(e) {
         for (var t = 0; t < e.changedTouches.length; t++) {
           if (appState !== S.COUNTDOWN) return;
@@ -661,14 +661,14 @@
           }
         }
       };
-      document.addEventListener('touchend',    _liftHandler, { passive: true });
-      document.addEventListener('touchcancel', _liftHandler, { passive: true });
+      document.addEventListener('touchend',    _liftHandler, true);
+      document.addEventListener('touchcancel', _liftHandler, true);
     }
 
     // Remove document-level lift listeners when leaving COUNTDOWN
     if (next !== S.COUNTDOWN && _liftHandler) {
-      document.removeEventListener('touchend',    _liftHandler);
-      document.removeEventListener('touchcancel', _liftHandler);
+      document.removeEventListener('touchend',    _liftHandler, true);
+      document.removeEventListener('touchcancel', _liftHandler, true);
       _liftHandler = null;
     }
 
