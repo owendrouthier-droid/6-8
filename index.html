@@ -268,7 +268,7 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      z-index: 20;
+      z-index: 100;
       width: 130px;
       height: 130px;
       border-radius: 65px;
@@ -478,13 +478,14 @@
   // ---------------------------------------------------------------------------
   var goBtn = document.getElementById('go-btn');
 
-  goBtn.addEventListener('click', function() {
+  goBtn.addEventListener('touchstart', function(e) {
+    e.preventDefault();
     if (appState !== S.PLACEMENT) return;
-    goBtn.textContent  = 'Get ready...';
+    goBtn.textContent    = 'Get ready...';
     goBtn.style.fontSize = '17px';
     goBtn.classList.add('pulsing');
     transitionTo(S.GET_READY);
-  });
+  }, { passive: false });
 
   // ---------------------------------------------------------------------------
   // ASSIGNMENT
