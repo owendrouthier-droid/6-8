@@ -571,7 +571,8 @@
               c.pressed = true;
               c.autoLit = true;
               // Remove the div now so no stale circle-target divs persist into COUNTDOWN
-              if (c.div) { c.div.remove(); c.div = null; }
+              if (c.div) { console.log('auto-lit div removed for circle', c.id); c.div.remove(); c.div = null; }
+              else { console.log('auto-lit circle', c.id, 'had no div to remove'); }
             }
           });
           transitionTo(S.COUNTDOWN);
@@ -642,6 +643,16 @@
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
       circles.forEach(function(c) { c.arcProgress = 0; });
+
+      // Remove the unclaim overlay — it has touch-action:none and will consume
+      // touchend events at circle positions if left in the DOM during countdown.
+      var unclaimOvl = document.getElementById('unclaim-overlay');
+      if (unclaimOvl) unclaimOvl.remove();
+
+      // Count any stale circle-target divs and surface in debug display.
+      var staleDivCount = document.querySelectorAll('.circle-target').length;
+      console.log('COUNTDOWN start — stale .circle-target divs in DOM:', staleDivCount);
+      dbgEl.dataset.divs = staleDivCount;
 
       // Use capture phase so this fires before any element handler can
       // consume the event — iOS was not delivering bubble-phase touchend
@@ -1005,6 +1016,7 @@
     dbgEl.innerHTML =
       'state: '  + appState + '<br>' +
       'real: '   + realPressedCount() + '<br>' +
+      'divs: '   + document.querySelectorAll('.circle-target').length + '<br>' +
       'evt: '    + dbgLastEvt + '<br>' +
       'time: '   + dbgLastTime;
   }
