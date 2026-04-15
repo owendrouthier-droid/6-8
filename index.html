@@ -419,17 +419,58 @@
     const minX = margin;
     const maxX = W - margin;
 
-    const cx = W / 2;
-    const cy = (minY + maxY) / 2;
-    const rx = (maxX - minX) / 2;
-    const ry = (maxY - minY) / 2;
+    var positions;
 
-    circles = Array.from({ length: N }, function(_, i) {
-      const angle = -Math.PI / 2 + (2 * Math.PI * i / N);
+    if (N === 8) {
+      // Two columns of 4, evenly spaced down left and right sides
+      var colX_L = minX;
+      var colX_R = maxX;
+      var step4  = (maxY - minY) / 3;
+      positions = [
+        { x: colX_L, y: Math.round(minY) },
+        { x: colX_L, y: Math.round(minY + step4) },
+        { x: colX_L, y: Math.round(minY + step4 * 2) },
+        { x: colX_L, y: Math.round(maxY) },
+        { x: colX_R, y: Math.round(minY) },
+        { x: colX_R, y: Math.round(minY + step4) },
+        { x: colX_R, y: Math.round(minY + step4 * 2) },
+        { x: colX_R, y: Math.round(maxY) },
+      ];
+    } else if (N === 7) {
+      // One top-center, three evenly spaced down each side, one bottom-center
+      var colX_L7 = minX;
+      var colX_R7 = maxX;
+      var cx7     = W / 2;
+      var step3   = (maxY - minY) / 2;
+      positions = [
+        { x: Math.round(cx7),    y: Math.round(minY) },
+        { x: colX_L7, y: Math.round(minY + step3 * 0.5) },
+        { x: colX_L7, y: Math.round(minY + step3 * 1.5) },
+        { x: colX_R7, y: Math.round(minY + step3 * 0.5) },
+        { x: colX_R7, y: Math.round(minY + step3 * 1.5) },
+        { x: Math.round(cx7 - W * 0.18), y: Math.round(maxY) },
+        { x: Math.round(cx7 + W * 0.18), y: Math.round(maxY) },
+      ];
+    } else {
+      // N = 6 (or any other count): evenly spaced ellipse
+      const cx = W / 2;
+      const cy = (minY + maxY) / 2;
+      const rx = (maxX - minX) / 2;
+      const ry = (maxY - minY) / 2;
+      positions = Array.from({ length: N }, function(_, i) {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i / N);
+        return {
+          x: Math.round(cx + rx * Math.cos(angle)),
+          y: Math.round(cy + ry * Math.sin(angle)),
+        };
+      });
+    }
+
+    circles = positions.map(function(p, i) {
       return {
         id:            i,
-        x:             Math.round(cx + rx * Math.cos(angle)),
-        y:             Math.round(cy + ry * Math.sin(angle)),
+        x:             p.x,
+        y:             p.y,
         arcProgress:   0,
         assignedColor: null,
         groupIndex:    -2,
@@ -606,6 +647,7 @@
   // RENDER: PLACEMENT  (auto-countdown 5...4...3...2...1 then start arc)
   // ---------------------------------------------------------------------------
   function renderPlacement(now) {
+    if (circles.length === 0) return;  // idle after play-again, before new game starts
     if (!placementStart) placementStart = now;
     var elapsed  = now - placementStart;
     var secsLeft = 5 - Math.floor(elapsed / 1000);
@@ -652,18 +694,6 @@
       c.arcProgress = progress;
       drawCircle(c.x, c.y, GREY_FILL, 1, 1, progress, true);
     });
-
-    // Large countdown number in the center
-    var secsLeft = Math.ceil(COUNTDOWN_MS * (1 - progress) / 1000);
-    if (secsLeft < 1) secsLeft = 1;
-    var numSize = Math.round(Math.min(W * 0.28, 120));
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle    = 'rgba(255,255,255,0.88)';
-    ctx.font         = 'bold ' + numSize + 'px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText(secsLeft, W / 2, H / 2);
-    ctx.restore();
 
     if (progress >= 1) transitionTo(S.REVEAL);
   }
