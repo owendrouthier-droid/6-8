@@ -256,45 +256,10 @@
     }
     #setup-start:active { background: rgba(255,255,255,0.82); }
 
-    /* GO button */
-    @keyframes goReadyPulse {
-      0%   { transform: translate(-50%, -50%) scale(1);    opacity: 1;   }
-      50%  { transform: translate(-50%, -50%) scale(0.88); opacity: 0.5; }
-      100% { transform: translate(-50%, -50%) scale(1);    opacity: 1;   }
-    }
-
-    #go-btn {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 100;
-      width: 130px;
-      height: 130px;
-      border-radius: 65px;
-      background: #fff;
-      color: #000;
-      font-size: 34px;
-      font-weight: 800;
-      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      touch-action: manipulation;
-      -webkit-user-select: none; user-select: none;
-      letter-spacing: -0.5px;
-    }
-    #go-btn.hidden  { display: none; }
-    #go-btn.pulsing { animation: goReadyPulse 0.55s ease-in-out infinite; }
   </style>
 </head>
 <body>
   <canvas id="app"></canvas>
-
-  <div id="dbg" style="position:fixed;top:0;left:0;z-index:999;background:rgba(0,0,0,0.82);color:#fff;font-size:11px;font-family:monospace;padding:6px 8px;pointer-events:none;line-height:1.6;"></div>
-
-  <div id="go-btn" class="hidden">GO</div>
 
   <div id="setup-screen" role="dialog" aria-modal="true" aria-label="Game setup">
     <div id="setup-inner">
@@ -344,7 +309,7 @@
   const RING_W       = 8;
   const RING_R       = CIRCLE_R + RING_GAP + RING_W / 2;
 
-  const GET_READY_MS = 1500;
+  const PLACEMENT_MS = 5000;  // 5-second auto-countdown before arc begins
   const COUNTDOWN_MS = 3000;
   const REVEAL_MS    = 440;
   const FADE_MS      = 300;
@@ -360,7 +325,6 @@
 
   const S = Object.freeze({
     PLACEMENT:   'PLACEMENT',
-    GET_READY:   'GET_READY',
     COUNTDOWN:   'COUNTDOWN',
     REVEAL:      'REVEAL',
     POST_REVEAL: 'POST_REVEAL',
@@ -381,7 +345,7 @@
   let circles      = [];
   let frozenCircles = [];
 
-  let getReadyStart  = null;
+  let placementStart = null;
   let countdownStart = null;
   let revealStart    = null;
   let fadeStart      = null;
@@ -407,7 +371,7 @@
   window.addEventListener('resize', () => {
     resizeCanvas();
     if (circles.length === 0) return;
-    if (appState === S.PLACEMENT || appState === S.GET_READY || appState === S.COUNTDOWN) {
+    if (appState === S.PLACEMENT || appState === S.COUNTDOWN) {
       createCircles();
       transitionTo(S.PLACEMENT);
     }
@@ -474,20 +438,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  // GO BUTTON
-  // ---------------------------------------------------------------------------
-  var goBtn = document.getElementById('go-btn');
-
-  goBtn.addEventListener('touchstart', function(e) {
-    e.preventDefault();
-    if (appState !== S.PLACEMENT) return;
-    goBtn.textContent    = 'Get ready...';
-    goBtn.style.fontSize = '17px';
-    goBtn.classList.add('pulsing');
-    transitionTo(S.GET_READY);
-  }, { passive: false });
-
-  // ---------------------------------------------------------------------------
   // ASSIGNMENT
   // ---------------------------------------------------------------------------
   function assignResults() {
@@ -521,7 +471,7 @@
     appState = next;
 
     if (next === S.PLACEMENT) {
-      getReadyStart  = null;
+      placementStart = null;
       countdownStart = null;
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
       circles.forEach(function(c) {
@@ -529,20 +479,10 @@
         c.assignedColor = null;
         c.groupIndex    = -2;
       });
-      goBtn.textContent    = 'GO';
-      goBtn.style.fontSize = '';
-      goBtn.classList.remove('pulsing');
-      goBtn.classList.remove('hidden');
-    }
-
-    if (next === S.GET_READY) {
-      getReadyStart = null;  // set on first tick
     }
 
     if (next === S.COUNTDOWN) {
       countdownStart = null;  // set on first tick
-      goBtn.classList.add('hidden');
-      goBtn.classList.remove('pulsing');
       circles.forEach(function(c) { c.arcProgress = 0; });
     }
 
@@ -663,23 +603,41 @@
   }
 
   // ---------------------------------------------------------------------------
-  // RENDER: PLACEMENT
+  // RENDER: PLACEMENT  (auto-countdown 5...4...3...2...1 then start arc)
   // ---------------------------------------------------------------------------
-  function renderPlacement() {
-    circles.forEach(function(c) {
-      drawCircle(c.x, c.y, GREY_FILL, 1, 1, 0, false);
-    });
-  }
+  function renderPlacement(now) {
+    if (!placementStart) placementStart = now;
+    var elapsed  = now - placementStart;
+    var secsLeft = 5 - Math.floor(elapsed / 1000);
+    if (secsLeft < 1) secsLeft = 1;
 
-  // ---------------------------------------------------------------------------
-  // RENDER: GET_READY
-  // ---------------------------------------------------------------------------
-  function renderGetReady(now) {
-    if (!getReadyStart) getReadyStart = now;
+    var W = window.innerWidth, H = window.innerHeight;
+
     circles.forEach(function(c) {
       drawCircle(c.x, c.y, GREY_FILL, 1, 1, 0, false);
     });
-    if ((now - getReadyStart) >= GET_READY_MS) transitionTo(S.COUNTDOWN);
+
+    // Instruction text
+    var instrSize = Math.round(Math.min(W * 0.045, 18));
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = 'rgba(255,255,255,0.45)';
+    ctx.font         = instrSize + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('Place your fingers', W / 2, H / 2 - Math.min(W * 0.18, 74));
+    ctx.restore();
+
+    // Large countdown number
+    var numSize = Math.round(Math.min(W * 0.28, 120));
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = 'rgba(255,255,255,0.88)';
+    ctx.font         = 'bold ' + numSize + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText(secsLeft, W / 2, H / 2);
+    ctx.restore();
+
+    if (elapsed >= PLACEMENT_MS) transitionTo(S.COUNTDOWN);
   }
 
   // ---------------------------------------------------------------------------
@@ -793,15 +751,13 @@
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
     switch (appState) {
-      case S.PLACEMENT:   renderPlacement();       break;
-      case S.GET_READY:   renderGetReady(now);     break;
+      case S.PLACEMENT:   renderPlacement(now);    break;
       case S.COUNTDOWN:   renderCountdown(now);    break;
       case S.REVEAL:      renderReveal(now);       break;
       case S.POST_REVEAL: renderPostReveal();      break;
       case S.FADING:      renderFading(now);       break;
     }
 
-    dbgUpdate();
     requestAnimationFrame(tick);
   }
 
@@ -871,28 +827,6 @@
     link.href = ic.toDataURL('image/png');
     document.head.appendChild(link);
   }
-
-  // ---------------------------------------------------------------------------
-  // DEBUG OVERLAY
-  // ---------------------------------------------------------------------------
-  var dbgEl       = document.getElementById('dbg');
-  var dbgLastEvt  = 'none';
-  var dbgLastTime = '--';
-
-  function dbgUpdate() {
-    dbgEl.innerHTML =
-      'state: ' + appState + '<br>' +
-      'evt: '   + dbgLastEvt + '<br>' +
-      'time: '  + dbgLastTime;
-  }
-
-  ['touchstart', 'touchend', 'touchcancel'].forEach(function(evtName) {
-    document.addEventListener(evtName, function(e) {
-      dbgLastEvt  = evtName + ' (' + e.changedTouches.length + ')';
-      dbgLastTime = new Date().toISOString().slice(11, 23);
-      dbgUpdate();
-    }, { passive: true, capture: true });
-  });
 
   // ---------------------------------------------------------------------------
   // INIT
